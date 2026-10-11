@@ -6,7 +6,7 @@ import path from "node:path";
 import { commitImport, previewImport } from "../src/lib/server/importer";
 import { getPool } from "../src/lib/server/db";
 
-const FILE = "LifeInUk-mock-1-3.md";
+const FILE = "LifeInUk-mock-1-8.md";
 
 async function main() {
   const bytes = new Uint8Array(await readFile(path.join(process.cwd(), "data", "initial", FILE)));
@@ -17,7 +17,7 @@ async function main() {
     filename: FILE,
     format: preview.format,
     fileHash: preview.fileHash,
-    label: "Initial dataset — mock tests 1–3",
+    label: "Mock tests 1–8",
     interpretation: preview.interpretation as unknown as Record<string, unknown>,
     allowSameFile: true,
     records: preview.records.map((r) => ({ ...r, approved: true, isImportant: r.promptHighlighted })),

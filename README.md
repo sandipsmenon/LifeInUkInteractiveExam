@@ -60,7 +60,7 @@ edits or overrides.
 
 ## Your initial dataset
 
-`data/initial/LifeInUk-mock-1-3.md` is your Word document for mock tests 1–3 (exported as Markdown). It
+`data/initial/LifeInUk-mock-1-8.md` is your Word document for mock tests 1–8 (192 questions, 24 per test; the earlier 75-question version is kept as `LifeInUk-mock-1-3.md` for the tests) (exported as Markdown). It
 contains **75 questions**: correct options are in bold, and each question has a *Correct*/*Incorrect* line
 recording your mock-test result (33 correct, 42 incorrect), followed by an explanation.
 

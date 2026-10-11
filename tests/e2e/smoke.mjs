@@ -55,17 +55,17 @@ async function run(name, viewport) {
     await page.goto(`${BASE}/import`);
     await page.click("button:has-text('Preview initial dataset')");
     await page.waitForSelector("text=Confirm how the document was read");
-    check(await visible(page, "text=75 questions found"), "preview finds 75 questions");
+    check(await visible(page, "text=192 questions found"), "preview finds 192 questions");
     check(await visible(page, "text=No “Mock test N” headings were found"), "missing mock headings reported as ambiguity");
-    check(await page.isDisabled("button:has-text('Import 75 questions')"), "import blocked until interpretation confirmed");
+    check(await page.isDisabled("button:has-text('Import 192 questions')"), "import blocked until interpretation confirmed");
     await page.check("text=Split in order: every");
-    await page.fill("input[aria-label='Questions per mock test']", "25");
-    await page.waitForSelector("text=Mock 3: #51–75");
+    await page.fill("input[aria-label='Questions per mock test']", "24");
+    await page.waitForSelector("text=Mock 8: #169–192");
     await page.check("text=I have checked how the answers");
     await shot("02-import-preview");
-    await page.click("button:has-text('Import 75 questions')");
+    await page.click("button:has-text('Import 192 questions')");
     await page.waitForSelector("text=Import complete");
-    check(await visible(page, "dd:has-text('75')"), "75 questions imported");
+    check(await visible(page, "dd:has-text('192')"), "192 questions imported");
     await shot("03-import-report");
 
     step = "re-import";
@@ -79,7 +79,7 @@ async function run(name, viewport) {
   step = "dashboard";
   await page.goto(`${BASE}/`);
   await page.waitForSelector("text=Questions in bank");
-  check(await visible(page, "text=33/75"), "original mock results shown (33/75)");
+  check(await visible(page, "text=100/192"), "original mock results shown (100/192)");
   await shot("04-dashboard");
 
   step = "question bank";

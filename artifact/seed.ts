@@ -1,5 +1,7 @@
 // Produces the initial-dataset documents (questions + one batch) for the artifact's database.
-// Usage: npx tsx artifact/seed.ts <out-dir>
+// Usage: npx tsx artifact/seed.ts <out-dir> [source.md] [questions-per-exam] [batch-id] [batch-label]
+// Question ids are init001…initNNN by document position, so re-running on a longer version of the same
+// document produces the same ids for questions already loaded (their practice history stays attached).
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -9,11 +11,14 @@ import { parseBlocks } from "../src/lib/parser/parse";
 import { contentHash } from "./src/store";
 
 const out = process.argv[2] ?? "artifact/seed-out";
-const file = "LifeInUk-mock-1-3.md";
-const bytes = readFileSync(path.join("data/initial", file));
+const file = process.argv[3] ?? "data/initial/LifeInUk-mock-1-3.md";
+const perExam = process.argv[4] ? Number(process.argv[4]) : null;
+const bytes = readFileSync(file);
 const parsed = parseBlocks(markdownToBlocks(bytes.toString("utf8")));
 const now = new Date().toISOString();
-const batchId = "initial13";
+const batchId = process.argv[5] ?? "initial13";
+const exam = (pos: number) => (perExam ? Math.floor((pos - 1) / perExam) + 1 : null);
+const qnum = (pos: number) => (perExam ? ((pos - 1) % perExam) + 1 : null);
 mkdirSync(path.join(out, "questions"), { recursive: true });
 let flagged = 0;
 for (const r of parsed.questions) {
@@ -28,16 +33,16 @@ for (const r of parsed.questions) {
     options: r.options.map(({ key, text }) => ({ key, text })),
     correctKeys: r.correctKeys,
     explanation: r.explanation,
-    exam: null,
-    qnum: null,
+    exam: exam(r.sourcePosition),
+    qnum: qnum(r.sourcePosition),
     sourceResult: r.sourceResult,
     original: {
       prompt: r.raw.prompt,
       options: r.raw.options.map((text, i) => ({ key: r.options[i].key, text })),
       correctKeys: r.correctKeys,
       explanation: r.raw.explanation.join("\n\n") || null,
-      exam: null,
-      qnum: null,
+      exam: exam(r.sourcePosition),
+      qnum: qnum(r.sourcePosition),
       rawResult: r.raw.result,
     },
     hash: contentHash(r.prompt, r.options),
@@ -55,12 +60,12 @@ for (const r of parsed.questions) {
   writeFileSync(path.join(out, "questions", `${id}.json`), JSON.stringify(doc));
 }
 const batch = {
-  filename: "LifeInUk-mock-1-3.docx (initial dataset)",
+  filename: path.basename(file),
   fileHash: createHash("sha256").update(bytes).digest("hex"),
-  label: "Initial dataset: mock tests 1–3",
+  label: process.argv[6] ?? "Initial dataset: mock tests 1–3",
   format: "markdown",
   stats: { imported: parsed.questions.length, skipped: 0, duplicates: 0, flagged, total: parsed.questions.length },
-  interpretation: { ...parsed.interpretation, examAssignment: { mode: "none" } },
+  interpretation: { ...parsed.interpretation, examAssignment: perExam ? { mode: "split", start: 1, size: perExam } : { mode: "none" } },
   createdAt: now,
 };
 writeFileSync(path.join(out, "batch.json"), JSON.stringify(batch));

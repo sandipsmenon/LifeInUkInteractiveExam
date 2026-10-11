@@ -53,21 +53,21 @@ const RULES: Record<Exclude<CategorySlug, "uncategorised">, Rule> = {
   monarchy: ({ all }) =>
     /\b(king|queen|monarch|monarchy|reign|reigning|royal|throne|crown(?! court)|prince|princess|consort|tudor|stuart)\b|\b(Henry|Edward|Elizabeth|James|Charles|William|Victoria|Mary|Richard|George|Anne)\s+(I{1,3}|IV|V|VI{0,3}|the)\b/i.test(all),
   history: ({ wide, prompt }) =>
-    /\b(stone age|bronze age|iron age|roman|romans|viking|vikings|anglo-saxons?|normans?|black death|wars? of the roses|magna carta|enlightenment|industrial revolution|glorious revolution|civil war|first world war|second world war|world war|battle|invaded|invasion|medieval|middle ages|elizabethan|reformation|empire|prehistoric|archaeolog|gentry|peasants|century)\b/i.test(wide) ||
+    /\b(stone age|bronze age|iron age|roman|romans|viking|vikings|anglo-saxons?|normans?|black death|wars? of the roses|magna carta|enlightenment|industrial revolution|glorious revolution|civil war|first world war|second world war|world war|battle|invaded|invasion|medieval|middle ages|elizabethan|reformation|empire|prehistoric|archaeolog|gentry|peasants|century|swinging sixties|president|nightingale|thatcher)\b/i.test(wide) ||
     /^\s*when did\b/i.test(prompt),
   government: ({ all }) =>
-    /\b(parliament|government|prime minister|minister|chancellor|exchequer|election|elected|vote|voting|mps?|msps?|coalition|referendum|constitution|constitutional|cabinet|house of commons|house of lords|westminster|holyrood|senedd|stormont|commonwealth|european union|\beu\b|nato|north atlantic treaty|united nations|civil servants?|public office|political part(y|ies)|downing street|chequers)\b/i.test(all),
+    /\b(parliament|government|prime minister|minister|chancellor|exchequer|election|elected|vote|voting|mps?|msps?|coalition|referendum|constitution|constitutional|cabinet|house of commons|house of lords|westminster|holyrood|senedd|stormont|commonwealth|european union|\beu\b|nato|north atlantic treaty|united nations|civil servants?|public office|political part(y|ies)|downing street|chequers|assembly|mayor|council|speaker|conservative|labour|tories|whigs|opposition|peers?)\b/i.test(all),
   geography: ({ prompt, wide }) =>
     /^\s*where\b|\blocated\b|\bcapital (city )?of\b|\bwhich (scottish|welsh|english|irish|british)? ?(city|town|country|county|island)\b/i.test(prompt) ||
-    /\b(national park|loch|river|island|isle of|orkney|channel|population|four parts of the uk)\b/i.test(wide),
+    /\b(national park|loch|river|island|isle of|orkney|channel|population|four parts of the uk|great britain|territor(y|ies))\b/i.test(wide),
   law: ({ all }) =>
-    /\b(court|courts|law|laws|legal|illegal|crime|criminal|police|jury|judge|magistrates?|sheriff|claims?|fine|fined|licence|discrimination|fair trial|rights?|freedom|citizen|citizenship|permanent resident|responsibilit(y|ies)|minimum age|stand for public office|offences?)\b/i.test(all),
+    /\b(court|courts|law|laws|legal|illegal|crime|criminal|police|jury|judge|magistrates?|sheriff|claims?|fine|fined|licence|discrimination|fair trial|rights?|freedom|citizen|citizenship|permanent resident|responsibilit(y|ies)|minimum age|stand for public office|offences?|dogs?|collar|driving|register(ed)?|national insurance)\b/i.test(all),
   culture: ({ all }) =>
-    /\b(tradition(al)?|sport|sports|sportsman|sportswoman|olympic|olympians?|golf|football|rugby|cricket|tennis|rowing|sail(ed|ing)?|yachtswoman|running|poet|poetry|poem|plays?|playwright|drama|novel|author|literature|bard|film|films|studios|music|musical|opera|operas|album|art|gallery|galleries|museum|pubs?|darts|pool|food|cakes?|dish|snack|flag|flower|rose|thistle|daffodil|shamrock|landmark|london eye|big ben|clock|jokes?|april fool|remembrance|cenotaph|tv|television)\b/i.test(all),
+    /\b(tradition(al)?|sport|sports|sportsman|sportswoman|olympic|olympians?|golf|football|rugby|cricket|tennis|rowing|sail(ed|ing)?|yachtswoman|running|poet|poetry|poem|plays?|playwright|drama|novel|author|literature|bard|film|films|studios|music|musical|opera|operas|album|art|gallery|galleries|museum|pubs?|darts|pool|food|cakes?|dish|snack|flag|flower|rose|thistle|daffodil|shamrock|landmark|london eye|big ben|clock|jokes?|april fool|remembrance|cenotaph|tv|television|pantomimes?|social networking|painter|artist|portrait|movies?|booker|languages?|dialects?|accents?|festival)\b/i.test(all),
   religion: ({ all }) =>
     /\b(church|churches|christian|christians|christmas|easter|lent|ash wednesday|shrove|hanukkah|diwali|eid|vaisakhi|archbishop|bishops?|pope|patron saint|saint|religion|religious|faith|faiths|anglican|episcopal|jewish|muslim|hindu|sikh|spiritual)\b/i.test(all),
   science: ({ all }) =>
-    /\b(invent(ed|or|ion)?|scientist|nobel|dna|discover(ed|y)?|world wide web|engineer|jet engine|penicillin|newton|cloning|telescope|mri)\b/i.test(all),
+    /\b(invent(ed|or|ion)?|scientist|nobel|dna|discover(ed|y)?|world wide web|engineer|jet engine|penicillin|newton|cloning|telescope|mri|concorde|aircraft|nursing|insulin)\b/i.test(all),
   values: ({ all }) =>
     /\b(fundamental principles?|british (life|values)|charit(y|ies)|volunteers?|community|tolerance|democracy|rule of law|individual liberty|autocracy)\b/i.test(all),
 };

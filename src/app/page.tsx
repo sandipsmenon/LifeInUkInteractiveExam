@@ -18,7 +18,7 @@ export default async function Dashboard() {
         <PageHeader title="Welcome" description="Your question bank is empty. Start by importing your Word document of mock-test questions." />
         <div className="card flex flex-col items-start gap-3 p-6">
           <p className="text-sm text-ink-2">
-            Your initial dataset (mock tests 1–3, 75 questions) is bundled with the app. Review it and import it in one step, or upload a new
+            Your questions from mock tests 1–8 (192 questions) are bundled with the app. Review it and import it in one step, or upload a new
             <code> .docx</code>.
           </p>
           <Link href="/import" className="btn btn-primary">Go to import</Link>

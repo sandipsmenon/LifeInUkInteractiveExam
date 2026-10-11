@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { handle } from "@/lib/server/http";
 import { previewImport } from "@/lib/server/importer";
 
-const INITIAL_DATASET = "LifeInUk-mock-1-3.md";
+const INITIAL_DATASET = "LifeInUk-mock-1-8.md";
 
 /** Previews the bundled initial dataset (the converted Word document for mock tests 1-3). */
 export async function POST(req: Request) {

@@ -13,7 +13,7 @@ export default async function ImportPage() {
         title="Import questions"
         description="Upload the Word document (.docx) for your latest mock tests. Nothing is saved until you have reviewed the preview, and questions already in your bank are never duplicated."
       />
-      <ImportWizard initialImported={batches.some((b) => b.filename === "LifeInUk-mock-1-3.md")} />
+      <ImportWizard initialImported={batches.some((b) => b.filename === "LifeInUk-mock-1-8.md")} />
       <details className="card mt-6 p-4 text-sm text-ink-2">
         <summary className="cursor-pointer font-medium text-ink">How should my document be formatted?</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5">

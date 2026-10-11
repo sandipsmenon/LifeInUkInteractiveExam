@@ -115,3 +115,14 @@ describe(".docx import", () => {
     await expect(docxToBlocks(new TextEncoder().encode("not a zip"))).rejects.toThrow(/not a valid .docx/);
   });
 });
+
+describe("mock tests 1–8 document", () => {
+  it("parses all 192 questions (8 × 24) and keeps the first 75 identical to the earlier document", () => {
+    const full = parseBlocks(markdownToBlocks(readFileSync("data/initial/LifeInUk-mock-1-8.md", "utf8")));
+    const first = parseBlocks(markdownToBlocks(md));
+    expect(full.questions).toHaveLength(192);
+    expect(full.questions.filter((q) => q.issues.some((i) => i.severity === "error"))).toHaveLength(0);
+    expect(full.questions.slice(0, 75).map((q) => [q.prompt, q.correctKeys])).toEqual(first.questions.map((q) => [q.prompt, q.correctKeys]));
+    expect(full.questions.filter((q) => q.sourceResult === "correct")).toHaveLength(100);
+  });
+});

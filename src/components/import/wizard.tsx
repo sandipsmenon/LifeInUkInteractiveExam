@@ -65,7 +65,7 @@ export function ImportWizard({ initialImported }: { initialImported: boolean }) 
       setSource(kind);
       setPreview(p);
       setExamMode(mode);
-      setLabel(kind === "initial" ? "Initial dataset — mock tests 1–3" : p.filename.replace(/\.[^.]+$/, ""));
+      setLabel(kind === "initial" ? "Mock tests 1–8" : p.filename.replace(/\.[^.]+$/, ""));
       setConfirmed(!p.interpretation.markerAmbiguous && mode === "document");
       setRows(
         assignExams(
@@ -202,7 +202,7 @@ export function ImportWizard({ initialImported }: { initialImported: boolean }) 
         <div className="card p-5">
           <h2 className="font-semibold">Initial dataset</h2>
           <p className="mt-1 text-sm text-ink-2">
-            Your first document (mock tests 1–3, 75 questions) is bundled with the app.
+            Your document with mock tests 1–8 (192 questions) is bundled with the app.
             {initialImported ? " It has already been imported; previewing again will show every question as a duplicate." : ""}
           </p>
           <button className="btn mt-3" disabled={busy} onClick={() => loadPreview("initial")}>
