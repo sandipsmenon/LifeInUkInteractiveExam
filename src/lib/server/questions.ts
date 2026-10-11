@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { categorise, deriveTopics } from "@/lib/categorize";
-import { contentHash } from "@/lib/text";
+import { contentHash } from "@/lib/hash";
 import type { Category, OriginalSnapshot, QuestionDetail, QuestionSummary } from "@/lib/types";
 import { query, queryOne, tx, type Queryable } from "./db";
 import { recomputeReviewState } from "./review";
