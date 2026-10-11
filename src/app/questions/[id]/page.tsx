@@ -3,12 +3,13 @@ import { notFound } from "next/navigation";
 import { FlagButton } from "@/components/flag-button";
 import { QuestionDangerZone, QuestionEditor, ResolveFlag } from "@/components/questions/editor";
 import { Section, StatusBadge } from "@/components/ui";
+import { formatDateTime } from "@/lib/format";
 import { getQuestion, listCategories } from "@/lib/server/questions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Question" };
 
-const fmt = (s: string) => new Date(s).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+const fmt = formatDateTime;
 
 export default async function QuestionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

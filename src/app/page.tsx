@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatDateTime } from "@/lib/format";
 import { Meter, PageHeader, Section, Stat, pct } from "@/components/ui";
 import { latestUnfinishedSession } from "@/lib/server/practice";
 import { dashboardStats } from "@/lib/server/stats";
@@ -158,7 +159,7 @@ export default async function Dashboard() {
                 <li key={r.id} className="flex items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
                     <Link href={`/practice/${r.id}`} className="link">{r.label}</Link>
-                    <div className="text-xs text-muted">{new Date(r.startedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</div>
+                    <div className="text-xs text-muted">{formatDateTime(r.startedAt)}</div>
                   </div>
                   <span className="tabular-nums text-ink-2">
                     {r.correct}/{r.answered}

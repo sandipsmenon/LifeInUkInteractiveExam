@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMounted } from "@/components/client-only";
 import { FlagButton } from "@/components/flag-button";
 import { api, seededShuffle, storage } from "@/lib/client";
 import type { SessionData, sessionResults } from "@/lib/server/practice";
@@ -391,6 +392,7 @@ function ExamRunner({ session, onDone }: { session: SessionData; onDone: (r: Res
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitted = useRef(false);
+  const mounted = useMounted();
   const deadline = new Date(session.startedAt).getTime() + (session.timeLimitSeconds ?? EXAM_FORMAT.minutes * 60) * 1000;
   const remaining = Math.max(0, deadline - now);
 
@@ -454,7 +456,7 @@ function ExamRunner({ session, onDone }: { session: SessionData; onDone: (r: Res
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-lg font-semibold">Exam simulation</h1>
         <div className={`rounded-lg px-3 py-1 font-mono text-lg tabular-nums ${remaining < 5 * 60000 ? "bg-bad-soft text-bad" : "bg-surface-2"}`} role="timer" aria-label="Time remaining">
-          {mm}:{String(ss).padStart(2, "0")}
+          {mounted ? `${mm}:${String(ss).padStart(2, "0")}` : "--:--"}
         </div>
       </div>
       <Progress index={index} total={qs.length} answered={answeredCount} />

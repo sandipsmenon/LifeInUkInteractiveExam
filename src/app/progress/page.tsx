@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatDateTime } from "@/lib/format";
 import { Meter, PageHeader, Section, Stat, StatusBadge, pct } from "@/components/ui";
 import type { ReviewStatus } from "@/lib/srs";
 import { progressStats } from "@/lib/server/stats";
@@ -19,7 +20,7 @@ export default async function ProgressPage() {
     <>
       <PageHeader title="Progress" description="How your accuracy and retention are changing, and where to focus next." />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Answers in last 60 days" value={totalAnswers} />
+        <Stat label="Answers in last 30 days" value={totalAnswers} />
         <Stat
           label="Right first time"
           value={p.firstAttempt.attempted ? pct(p.firstAttempt.firstCorrect / p.firstAttempt.attempted) : "—"}
@@ -75,24 +76,28 @@ export default async function ProgressPage() {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Section title="Daily practice (last 60 days)">
-          {p.daily.length === 0 ? (
+        <Section title="Daily practice (last 30 days)">
+          {totalAnswers === 0 ? (
             <p className="text-sm text-ink-2">No practice recorded yet.</p>
           ) : (
             <>
               <div className="flex h-32 items-end gap-0.5" role="img" aria-label="Answers per day; see table below">
                 {p.daily.map((d) => (
-                  <div key={d.day} className="flex h-full min-w-1 flex-1 flex-col justify-end" title={`${d.day}: ${d.n} answers, ${d.correct} correct (${Math.round((d.correct / d.n) * 100)}%)`}>
-                    <div className="rounded-t-[4px] bg-accent" style={{ height: `${(d.n / maxDaily) * 100}%` }} />
+                  <div key={d.day} className="flex h-full min-w-1 flex-1 flex-col justify-end" title={`${d.day}: ${d.n} answers${d.n ? `, ${d.correct} correct (${Math.round((d.correct / d.n) * 100)}%)` : ""}`}>
+                    <div className="rounded-t-[4px] bg-accent" style={{ height: `${(d.n / maxDaily) * 100}%`, minHeight: d.n ? 3 : 0 }} />
                   </div>
                 ))}
+              </div>
+              <div className="mt-1 flex justify-between text-xs text-muted">
+                <span>{p.daily[0]?.day.slice(5)}</span>
+                <span>Today</span>
               </div>
               <details className="mt-3 text-sm">
                 <summary className="cursor-pointer text-ink-2">Show as table</summary>
                 <table className="mt-2 w-full text-left text-xs">
                   <thead><tr className="text-muted"><th className="py-1">Day</th><th>Answers</th><th>Accuracy</th><th>Reviews</th></tr></thead>
                   <tbody>
-                    {[...p.daily].reverse().map((d) => (
+                    {[...p.daily].reverse().filter((d) => d.n > 0).map((d) => (
                       <tr key={d.day} className="border-t border-line"><td className="py-1">{d.day}</td><td>{d.n}</td><td>{pct(d.correct / d.n)}</td><td>{d.reviews}</td></tr>
                     ))}
                   </tbody>
@@ -153,7 +158,7 @@ export default async function ProgressPage() {
                     <tr key={s.id} className="border-t border-line">
                       <td className="py-2">
                         <Link href={`/practice/${s.id}`} className="link">{s.label}</Link>
-                        <div className="text-xs text-muted">{new Date(s.startedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</div>
+                        <div className="text-xs text-muted">{formatDateTime(s.startedAt)}</div>
                       </td>
                       <td className="tabular-nums">{s.correct}/{s.answered} ({pct(s.accuracy)})</td>
                       <td className={`tabular-nums ${s.change === null ? "text-muted" : s.change >= 0 ? "text-good" : "text-bad"}`}>

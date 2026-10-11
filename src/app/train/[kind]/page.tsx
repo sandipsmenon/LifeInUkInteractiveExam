@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ClientOnly } from "@/components/client-only";
 import { CompareDrill } from "@/components/train/compare";
 import { Flashcards } from "@/components/train/flashcards";
 import { MatchingGame } from "@/components/train/matching";
@@ -68,7 +69,8 @@ export default async function TrainKindPage({ params }: { params: Promise<{ kind
         <h1 className="text-xl font-semibold">{TITLES[kind]}</h1>
         <Link href="/train" className="text-sm text-ink-2 hover:underline">All exercises</Link>
       </div>
-      {body}
+      {/* Exercises shuffle randomly, so they render in the browser only. */}
+      <ClientOnly fallback={<p className="py-10 text-center text-sm text-muted">Preparing exercise…</p>}>{body}</ClientOnly>
     </div>
   );
 }

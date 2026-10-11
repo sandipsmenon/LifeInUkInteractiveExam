@@ -131,8 +131,8 @@ export function confusableGroups(qs: FactSource[], limit = 30): ComparisonGroup[
     const a = answerText(q);
     if (extractYear(a)) return "date";
     if (/\d/.test(a)) return "number";
-    if (q.categories.includes("people")) return "person";
-    if (q.categories.includes("geography")) return "place";
+    if (q.categories.includes("people") && NAME_LIKE.test(a)) return "person";
+    if (/^\s*where\b|\bwhich (city|country|town)\b|\bcapital\b/i.test(q.prompt)) return "place";
     return null;
   };
   const kw = new Map(qs.map((q) => [q.id, keywords(q.prompt)]));
@@ -158,7 +158,8 @@ export function confusableGroups(qs: FactSource[], limit = 30): ComparisonGroup[
         score += 0.5;
       }
       if (!reason) continue;
-      const key = [a.id, b.id].sort().join(":");
+      // One exercise per answer pair, even when several questions share those answers.
+      const key = [ansA.toLowerCase(), ansB.toLowerCase()].sort().join("\u0000");
       if (seen.has(key)) continue;
       seen.add(key);
       groups.push({ score, group: { reason, facts: [toFact(a), toFact(b)] } });

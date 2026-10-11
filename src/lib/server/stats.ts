@@ -250,10 +250,13 @@ export async function progressStats() {
        FROM question_attempt_stats WHERE attempts > 0`,
     ),
     query(
-      `SELECT to_char(created_at::date, 'YYYY-MM-DD') AS day, count(*)::int AS n,
-              (count(*) FILTER (WHERE is_correct))::int AS correct,
-              (count(*) FILTER (WHERE mode = 'revision'))::int AS reviews
-       FROM attempts WHERE created_at > now() - interval '60 days' GROUP BY 1 ORDER BY 1`,
+      `SELECT to_char(d, 'YYYY-MM-DD') AS day, coalesce(x.n, 0)::int AS n, coalesce(x.correct, 0)::int AS correct,
+              coalesce(x.reviews, 0)::int AS reviews
+       FROM generate_series(current_date - 29, current_date, interval '1 day') d
+       LEFT JOIN (SELECT created_at::date AS day, count(*) AS n, count(*) FILTER (WHERE is_correct) AS correct,
+                         count(*) FILTER (WHERE mode = 'revision') AS reviews
+                  FROM attempts WHERE created_at > current_date - 30 GROUP BY 1) x ON x.day = d::date
+       ORDER BY d`,
     ),
     // Retention: of attempts on questions you had previously answered correctly, how many were still right?
     query(

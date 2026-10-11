@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/client";
+import { formatDateTime } from "@/lib/format";
 
 export function RestoreForm() {
   const router = useRouter();
@@ -68,7 +69,7 @@ export function BatchList({ batches }: { batches: Batch[] }) {
             <div className="min-w-0 flex-1">
               <Link href={`/questions?batch=${b.id}`} className="font-medium hover:underline">{b.label ?? b.filename}</Link>
               <div className="text-xs text-muted">
-                {b.filename} · {new Date(b.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · {b.questionCount} questions now
+                {b.filename} · {formatDateTime(b.createdAt)} · {b.questionCount} questions now
                 {b.stats?.imported !== undefined && ` · imported ${b.stats.imported}, duplicates ${b.stats.duplicates}, skipped ${b.stats.skipped}, flagged ${b.stats.flagged}`}
               </div>
             </div>

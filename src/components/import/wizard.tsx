@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/client";
+import { formatDate } from "@/lib/format";
 import type { MarkerStyle } from "@/lib/parser/types";
 import type { ImportPreview, ImportReport, PreviewRecord } from "@/lib/server/importer";
 
@@ -236,7 +237,7 @@ export function ImportWizard({ initialImported }: { initialImported: boolean }) 
 
         {preview.previousImport && (
           <p className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
-            This exact file was already imported on {new Date(preview.previousImport.createdAt).toLocaleDateString("en-GB")}
+            This exact file was already imported on {formatDate(preview.previousImport.createdAt)}
             {preview.previousImport.label ? ` (“${preview.previousImport.label}”)` : ""}. Duplicate questions will be skipped.
           </p>
         )}
