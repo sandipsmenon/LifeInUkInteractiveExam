@@ -44,3 +44,5 @@ next-env.d.ts
 /.data
 /screenshots
 !.env.example
+
+# artifact build output is committed on purpose (it is what gets published)

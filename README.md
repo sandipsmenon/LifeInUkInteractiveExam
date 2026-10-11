@@ -302,3 +302,16 @@ What's verified:
   nothing is cached or prerendered.
 - **Browser storage is never the source of truth.** It holds only a UI preference and in-progress exam
   answers (restored after a refresh). All results are saved in the database.
+
+---
+
+## Hosted version (claude.ai Artifact)
+
+`artifact/` holds a single-page build of the same app that runs as a private claude.ai Artifact. It needs no
+server, database account or hosting. It reuses the parser, categoriser, scheduler and drill logic from
+`src/lib`, and stores data in the Artifact's own database (readable and writable only by its owner).
+
+- Build: `node artifact/build.mjs` → `artifact/dist/life-in-uk-revision.html` (React, ReactDOM and JSZip load from cdnjs).
+- Seed documents for the initial dataset: `npx tsx artifact/seed.ts <out-dir>`.
+- Differences from the Next.js version: `.docx` files are read in the browser; there is no password page,
+  because access is your claude.ai login; backups are JSON/CSV files from the Backup page.
