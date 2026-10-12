@@ -336,5 +336,6 @@ hosting. It reuses the parser and categoriser from `src/lib` and stores data in 
 - Build: `node artifact/build.mjs` → `artifact/dist/life-in-uk-revision.html` (React, ReactDOM and JSZip load from cdnjs).
 - Seed documents: `npx tsx artifact/seed.ts <out-dir> [source.md] [per-test] [batch-id] [label]`.
   It reads the hand-written tips from `data/tips/*.json` (keyed by question position).
-- Source data: `data/initial/LifeInUk-tests-1-16.md` (384 questions, as uploaded, unchanged).
+- Source data: `data/initial/LifeInUk-tests-1-20.md` (480 questions, as uploaded, unchanged; the earlier
+  `LifeInUk-tests-1-16.md` is kept for reference).
 - The Next.js version under `src/app` does not have the 40-test, retry or tip features yet.
