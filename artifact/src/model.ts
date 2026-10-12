@@ -1,5 +1,10 @@
 import type { Confidence } from "../../src/lib/srs";
 
+export const TOTAL_TESTS = 40;
+export const PER_TEST = 24;
+export const PASS_MARK = 18; // 75% of 24, as in the real Life in the UK test
+export const TEST_MINUTES = 45;
+
 export interface Option {
   key: string;
   text: string;
@@ -18,27 +23,29 @@ export interface Original {
   explanation: string | null;
   exam: number | null;
   qnum: number | null;
-  rawResult?: string | null;
 }
-/** A question as stored in db `questions/<id>`. The `original` snapshot is never modified. */
+/**
+ * A question, shared by everyone, in db `questions/<id>`.
+ * `pos` is its position across all uploaded documents; it decides the test: test = ceil(pos / 24).
+ */
 export interface Question {
   id: string;
-  seq: number; // global order of arrival; also the position in its source document
-  pos: number | null; // position inside its source document
+  seq: number;
+  pos: number | null;
   prompt: string;
   type: "single" | "multi" | "true_false";
   options: Option[];
   correctKeys: string[];
   explanation: string | null;
-  exam: number | null;
-  qnum: number | null;
-  sourceResult: "correct" | "incorrect" | null;
+  exam: number | null; // test number 1..40
+  qnum: number | null; // question number inside the test 1..24
   original: Original | null;
   hash: string;
   topics: string[];
   cats: { slug: string; source: "auto" | "manual" }[];
+  tips: string[]; // memory tips shown after a wrong answer
   notes: string | null;
-  aid: string | null;
+  aid: string | null; // the owner's own memory aid, shown first
   important: boolean;
   confusing: boolean;
   flags: Flag[];
@@ -55,16 +62,17 @@ export interface Attempt {
   sid: string | null;
   self: boolean;
 }
-/** db `progress/<questionId>`: the attempt log for one question (the schedule is replayed from it). */
+/** Each person's own answers to one question: db `data/users/<id>/profile/progress/<questionId>`. */
 export interface Progress {
   attempts: Attempt[];
 }
 export interface Session {
   id: string;
   mode: Mode;
+  test: number | null;
+  label: string;
   config: Record<string, unknown>;
   qids: string[];
-  reasons: Record<string, string[]>;
   startedAt: string;
   finishedAt: string | null;
   timeLimit: number | null;
@@ -88,7 +96,7 @@ export const CATEGORIES: { slug: string; name: string }[] = [
   { slug: "history", name: "History & events" },
   { slug: "government", name: "Government & politics" },
   { slug: "geography", name: "Geography & places" },
-  { slug: "law", name: "Law, rights & citizenship" },
+  { slug: "law", name: "Law, rights & everyday rules" },
   { slug: "culture", name: "Culture, arts & sport" },
   { slug: "religion", name: "Religion & festivals" },
   { slug: "science", name: "Science & inventions" },
@@ -97,18 +105,34 @@ export const CATEGORIES: { slug: string; name: string }[] = [
 ];
 export const CAT_NAME: Record<string, string> = Object.fromEntries(CATEGORIES.map((c) => [c.slug, c.name]));
 
+const has = (q: Question, slug: string) => q.cats.some((c) => c.slug === slug);
+const answers = (q: Question) => q.options.filter((o) => q.correctKeys.includes(o.key)).map((o) => o.text).join(" ");
+
+/** Question styles: how a question is asked or what kind of answer it wants. A question can have several. */
+export const STYLES: { key: string; name: string; description: string; match: (q: Question) => boolean }[] = [
+  {
+    key: "truefalse",
+    name: "True / False & Yes / No",
+    description: "Two-option statements to judge.",
+    match: (q) => q.options.length === 2 && q.options.every((o) => /^(true|false|yes|no)[.!]?$/i.test(o.text.trim())),
+  },
+  { key: "multi", name: "Choose two or more", description: "Questions with more than one right answer.", match: (q) => q.correctKeys.length > 1 },
+  { key: "not", name: "“NOT” and “FALSE” questions", description: "Spot the one that does not belong.", match: (q) => /\bNOT\b|\bFALSE\b|\bnot\b.*\?$/.test(q.prompt) && q.options.length > 2 },
+  { key: "numbers", name: "Numbers, ages & money", description: "Figures, percentages, ages, fines and populations.", match: (q) => has(q, "numbers") || (/\d/.test(answers(q)) && !has(q, "dates")) },
+  { key: "dates", name: "Dates & years", description: "When things happened.", match: (q) => has(q, "dates") },
+  { key: "names", name: "Names & people", description: "Who did what.", match: (q) => has(q, "people") },
+  { key: "places", name: "Places", description: "Where things are.", match: (q) => has(q, "geography") },
+];
+export const STYLE_NAME: Record<string, string> = Object.fromEntries(STYLES.map((s) => [s.key, s.name]));
+
 export const MODES = {
-  weak: { label: "Weak areas", description: "Questions you get wrong, forget, or have not mastered — each shows why it was picked." },
-  revision: { label: "Revision (due)", description: "Spaced-repetition reviews that are due now." },
-  quick: { label: "Quick practice", description: "Random questions from your whole bank." },
-  category: { label: "Category practice", description: "Focus on one category, such as dates or people." },
-  mixed: { label: "Mixed practice", description: "Interleave questions from several categories." },
-  mock: { label: "Mock exam practice", description: "Replay one mock test's questions in order." },
-  rapid: { label: "Rapid recall", description: "See the question, recall in your head, reveal and mark yourself." },
-  exam: { label: "Exam simulation", description: "24 questions, 45 minutes, 18 to pass. Marked when you submit." },
+  test: { label: "Test" },
+  retry: { label: "Retry mistakes" },
+  style: { label: "Practice by style" },
+  topic: { label: "Practice by topic" },
+  mixed: { label: "Mixed practice" },
 } as const;
 export type Mode = keyof typeof MODES;
-export const EXAM = { questions: 24, minutes: 45, passMark: 18 };
 
 /** Short id: letters and digits only (valid as a db path segment and a URL anchor). */
 export function newId(): string {
@@ -132,4 +156,9 @@ function cyrb53(str: string, seed: number) {
 }
 export function textHash(s: string) {
   return cyrb53(s, 1) + cyrb53(s, 7);
+}
+
+/** Test placement for a question at document position `pos`. */
+export function placement(pos: number) {
+  return { exam: Math.floor((pos - 1) / PER_TEST) + 1, qnum: ((pos - 1) % PER_TEST) + 1 };
 }

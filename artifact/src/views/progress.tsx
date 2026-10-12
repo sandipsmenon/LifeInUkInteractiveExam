@@ -1,98 +1,132 @@
 import * as React from "react";
-import { MODES } from "../model";
-import { categoryPerf, dailyActivity, deriveAll, examPerf, fmt, pct, ref, retention, sessionSummaries } from "../logic";
+import { PASS_MARK, PER_TEST } from "../model";
+import { categoryPerf, dailyActivity, deriveAll, fmt, pct, ref, stylePerf, testSummaries } from "../logic";
 import { Meter, PageHeader, Panel, Stat, StatusPill, useApp } from "../ui";
 
 export function ProgressView() {
   const { store, go } = useApp();
   const all = deriveAll(store);
-  const cats = categoryPerf(all);
-  const exams = examPerf(all);
+  const tests = testSummaries(store, all).filter((t) => t.questions > 0);
+  const taken = tests.filter((t) => t.last);
+  const passed = taken.filter((t) => t.last!.passed).length;
+  const attempts = all.reduce((n, d) => n + d.n, 0);
+  const correct = all.reduce((n, d) => n + d.n - d.wrong, 0);
+  const practised = all.filter((d) => d.n > 0);
+  const firstRight = practised.filter((d) => d.attempts[0].ok).length;
+  const fixed = all.filter((d) => d.status === "learned" && d.wrong > 0).length;
+  const missed = all.filter((d) => d.status === "missed").length;
+  const mostMissed = all.filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong || b.n - a.n).slice(0, 12);
   const daily = dailyActivity(all, 30);
   const maxD = Math.max(1, ...daily.map((d) => d.n));
-  const ret = retention(all);
-  const retAll = ret.reduce((a, r) => ({ n: a.n + r.n, kept: a.kept + r.kept }), { n: 0, kept: 0 });
-  const practised = all.filter((d) => d.n > 0);
-  const firstRight = practised.filter((d) => d.firstCorrect).length;
-  const missed = all.filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong || b.n - a.n).slice(0, 15);
-  const repeated = all.filter((d) => d.wrong >= 2 && d.state.lastResult === false).length;
-  const weakest = cats.filter((c) => c.accuracy !== null && c.key !== "uncategorised").sort((a, b) => a.accuracy! - b.accuracy!)[0];
-
-  const sessions = sessionSummaries(store).filter((s) => s.answered > 0);
-  const chrono = [...sessions].reverse();
-  const withChange = chrono
-    .map((s, i) => {
-      const prev = chrono.slice(0, i).reverse().find((p) => p.mode === s.mode);
-      const acc = s.correct / s.answered;
-      return { ...s, acc, change: prev ? acc - prev.correct / prev.answered : null };
-    })
-    .reverse()
-    .slice(0, 12);
-  const totalAnswers = daily.reduce((n, d) => n + d.n, 0);
+  const totalDaily = daily.reduce((n, d) => n + d.n, 0);
 
   return (
     <>
-      <PageHeader title="Progress" sub="How your accuracy and retention are changing, and where to focus next." />
+      <PageHeader title="Progress" sub="Your test scores, the question styles and topics you find hardest, and how your mistakes are getting fixed." />
       <div className="grid4">
-        <Stat label="Answers in last 30 days" value={totalAnswers} />
-        <Stat label="Right first time" value={practised.length ? pct(firstRight / practised.length) : "—"} hint={`${firstRight} of ${practised.length} questions practised`} />
-        <Stat label="Retention" value={retAll.n ? pct(retAll.kept / retAll.n) : "—"} hint="Still correct after a previous correct answer" />
-        <Stat label="Repeatedly wrong" value={repeated} hint="Wrong 2+ times, including last time" />
+        <Stat label="Tests passed" value={`${passed}/${tests.length}`} hint={`${taken.length} taken at least once`} tone={passed ? "good" : ""} />
+        <Stat label="Accuracy" value={pct(attempts ? correct / attempts : null)} hint={`${attempts} answers`} />
+        <Stat label="Right first time" value={practised.length ? pct(firstRight / practised.length) : "—"} hint={`${firstRight} of ${practised.length} questions`} />
+        <Stat label="Mistakes fixed" value={fixed} hint={`${missed} still to retry`} tone={missed ? "bad" : ""} />
       </div>
-      {weakest && (
-        <div className="panel row wrap mt">
-          <p className="small grow">
-            <strong>Recommended next:</strong> {weakest.name} is your weakest category ({pct(weakest.accuracy)}).
-            {repeated > 0 && ` You also have ${repeated} question${repeated === 1 ? "" : "s"} you keep getting wrong.`}
-          </p>
-          <button className="btn btn-sm btn-primary" onClick={() => go("practice", `category.${weakest.key}`)}>
-            Practise {weakest.name}
-          </button>
-          {repeated > 0 && (
-            <button className="btn btn-sm" onClick={() => go("practice", "weak")}>
-              Weak areas
-            </button>
+
+      <Panel title="Test scores" className="mt-l">
+        {taken.length === 0 ? (
+          <p className="small muted">No tests taken yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Last score</th>
+                  <th>Best</th>
+                  <th>Attempts</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {taken.map((t) => (
+                  <tr key={t.test}>
+                    <td>
+                      <button className="linkbtn" onClick={() => go("session", t.attempts[t.attempts.length - 1].id)}>
+                        Test {t.test}
+                      </button>
+                      <div className="tiny muted">{fmt(t.attempts[t.attempts.length - 1].at)}</div>
+                    </td>
+                    <td className="num">
+                      {t.last!.score}/{t.last!.total}
+                    </td>
+                    <td className="num">{t.best}</td>
+                    <td className="num">{t.attempts.length}</td>
+                    <td className={t.last!.passed ? "good-text strong" : "bad-text"}>{t.last!.passed ? "Pass" : `Needs ${Math.ceil((t.last!.total * PASS_MARK) / PER_TEST)}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <div className="grid2 mt-l">
+        <Panel title="By question style">
+          <div className="stack">
+            {stylePerf(all).map((p) => (
+              <Meter
+                key={p.key}
+                label={p.name}
+                value={p.accuracy}
+                onClick={() => go("practice", `style.${p.key}`)}
+                detail={`${p.answered}/${p.questions} answered${p.attempts ? ` · ${p.correct}/${p.attempts} right` : ""}${p.missed ? ` · ${p.missed} to retry` : ""}`}
+              />
+            ))}
+          </div>
+        </Panel>
+        <Panel title="By topic">
+          <div className="stack">
+            {categoryPerf(all).map((p) => (
+              <Meter
+                key={p.key}
+                label={p.name}
+                value={p.accuracy}
+                onClick={() => go("practice", `topic.${p.key}`)}
+                detail={`${p.answered}/${p.questions} answered${p.attempts ? ` · ${p.correct}/${p.attempts} right` : ""}${p.missed ? ` · ${p.missed} to retry` : ""}`}
+              />
+            ))}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid2 mt-l">
+        <Panel title="Most missed questions">
+          {mostMissed.length === 0 ? (
+            <p className="small muted">Nothing missed yet.</p>
+          ) : (
+            <ul className="list">
+              {mostMissed.map((d) => (
+                <li key={d.q.id} className="list-row top">
+                  <div className="minw0">
+                    <button className="linkbtn left" onClick={() => go("q", d.q.id)}>
+                      {d.q.prompt}
+                    </button>
+                    <div className="row tiny muted">
+                      {ref(d.q)} <StatusPill status={d.status} />
+                    </div>
+                  </div>
+                  <span className="num small bad-text nowrap">{d.wrong}× wrong</span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      )}
-      <div className="grid2 mt-l">
-        <Panel title="Accuracy by category">
-          <p className="tiny muted">Combines practice answers with your original mock-test results.</p>
-          <div className="stack">
-            {cats.map((c) => (
-              <Meter
-                key={c.key}
-                label={c.name}
-                value={c.accuracy}
-                onClick={() => go("bank", `cat.${c.key}`)}
-                detail={`${c.questions} questions · practice ${c.attempts ? `${c.correct}/${c.attempts}` : "none yet"} · mock ${c.mockCorrect}/${c.mockAnswered} · ${c.mastered} mastered`}
-              />
-            ))}
-          </div>
         </Panel>
-        <Panel title="Accuracy by mock exam">
-          <div className="stack">
-            {exams.map((e) => (
-              <Meter
-                key={e.key}
-                label={e.name}
-                value={e.accuracy}
-                onClick={() => go("bank", `exam.${e.key}`)}
-                detail={`${e.questions} questions · original score ${e.mockAnswered ? `${e.mockCorrect}/${e.mockAnswered}` : "—"} · practice ${pct(e.attempts ? e.correct / e.attempts : null)}`}
-              />
-            ))}
-          </div>
-        </Panel>
-      </div>
-      <div className="grid2 mt-l">
         <Panel title="Daily practice (last 30 days)">
-          {totalAnswers === 0 ? (
-            <p className="small muted">No practice recorded yet.</p>
+          {totalDaily === 0 ? (
+            <p className="small muted">No answers in the last 30 days.</p>
           ) : (
             <>
               <div className="bars tall" role="img" aria-label="Answers per day; a table follows">
                 {daily.map((d) => (
-                  <div key={d.day} className="bar-col" title={`${d.day}: ${d.n} answers${d.n ? `, ${pct(d.correct / d.n)} correct` : ""}`}>
+                  <div key={d.day} className="bar-col" title={`${d.day}: ${d.n} answers${d.n ? `, ${pct(d.correct / d.n)} right` : ""}`}>
                     <div className="bar" style={{ height: `${(d.n / maxD) * 100}%`, minHeight: d.n ? 3 : 0 }} />
                   </div>
                 ))}
@@ -101,7 +135,7 @@ export function ProgressView() {
                 <span>{daily[0].day.slice(5)}</span>
                 <span>Today</span>
               </div>
-              <details className="mt small">
+              <details className="small mt">
                 <summary>Show as table</summary>
                 <div className="table-wrap">
                   <table>
@@ -109,7 +143,7 @@ export function ProgressView() {
                       <tr>
                         <th>Day</th>
                         <th>Answers</th>
-                        <th>Accuracy</th>
+                        <th>Right</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -125,75 +159,6 @@ export function ProgressView() {
                 </div>
               </details>
             </>
-          )}
-        </Panel>
-        <Panel title="Retention by week">
-          {ret.length === 0 ? (
-            <p className="small muted">This appears once you’ve answered a question correctly and then seen it again.</p>
-          ) : (
-            <div className="stack">
-              {ret.map((r) => (
-                <Meter key={r.week} label={`Week of ${r.week}`} value={r.kept / r.n} detail={`${r.kept} of ${r.n} previously correct answers still correct`} />
-              ))}
-            </div>
-          )}
-        </Panel>
-      </div>
-      <div className="grid2 mt-l">
-        <Panel title="Frequently missed questions">
-          {missed.length === 0 ? (
-            <p className="small muted">No missed questions yet.</p>
-          ) : (
-            <ul className="list">
-              {missed.map((d) => (
-                <li key={d.q.id} className="list-row top">
-                  <div className="minw0">
-                    <button className="linkbtn left" onClick={() => go("q", d.q.id)}>
-                      {d.q.prompt}
-                    </button>
-                    <div className="row tiny muted">
-                      {ref(d.q)} <StatusPill status={d.state.status} />
-                    </div>
-                  </div>
-                  <span className="num small bad-text nowrap">{d.wrong}× wrong</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-        <Panel title="Session history">
-          {withChange.length === 0 ? (
-            <p className="small muted">No sessions yet.</p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Session</th>
-                    <th>Score</th>
-                    <th>Change</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {withChange.map((s) => (
-                    <tr key={s.id}>
-                      <td>
-                        <button className="linkbtn" onClick={() => go("session", s.id)}>
-                          {MODES[s.mode].label}
-                        </button>
-                        <div className="tiny muted">{fmt(s.startedAt)}</div>
-                      </td>
-                      <td className="num">
-                        {s.correct}/{s.answered} ({pct(s.acc)})
-                      </td>
-                      <td className={`num ${s.change === null ? "muted" : s.change >= 0 ? "good-text" : "bad-text"}`}>
-                        {s.change === null ? "—" : `${s.change >= 0 ? "+" : "−"}${Math.abs(Math.round(s.change * 100))}`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           )}
         </Panel>
       </div>

@@ -10,8 +10,10 @@ export function contentHash(prompt: string, options: { text: string }[]) {
 }
 
 /**
- * In-memory mirror of the artifact database. Everything is loaded once on open (a personal bank is a few
- * hundred to a couple of thousand small documents), then every change is applied locally and written through.
+ * In-memory mirror of the artifact database.
+ *  - Shared by everyone: `questions/*` and `batches/*` (only editors can change them).
+ *  - Private to each person: `data/users/<id>/profile/progress/*` and `.../sessions/*`.
+ * Everything is loaded once on open, then changes are applied locally and written through.
  */
 export class Store {
   questions = new Map<string, Question>();
@@ -20,9 +22,17 @@ export class Store {
   batches = new Map<string, Batch>();
   version = 0;
   error: string | null = null;
+  /** False when this viewer has no private space (signed out, or view-only access): answers are kept for this visit only. */
+  canSave: boolean;
   private listeners = new Set<() => void>();
 
-  constructor(private db: DB) {}
+  constructor(
+    private db: DB,
+    private uid: string | null,
+    public isEditor: boolean,
+  ) {
+    this.canSave = !!uid;
+  }
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -34,10 +44,13 @@ export class Store {
     this.listeners.forEach((l) => l());
   }
 
+  private mine(sub: "progress" | "sessions") {
+    return `data/users/${this.uid}/profile/${sub}`;
+  }
+
   private async readAll(collection: string, orderField: string): Promise<any[]> {
     const out: any[] = [];
     let last: unknown = null;
-    // Pages of 1000, ordered by a field every document has.
     for (let guard = 0; guard < 50; guard++) {
       let q = this.db.collection(collection).orderBy(orderField).limit(1000);
       if (last !== null) q = q.where(orderField, ">", last);
@@ -50,16 +63,16 @@ export class Store {
   }
 
   async load() {
-    const [qs, ps, ss, bs] = await Promise.all([
+    const [qs, bs, ps, ss] = await Promise.all([
       this.readAll("questions", "seq"),
-      this.readAll("progress", "qid"),
-      this.readAll("sessions", "startedAt"),
       this.readAll("batches", "createdAt"),
+      this.uid ? this.readAll(this.mine("progress"), "qid") : Promise.resolve([]),
+      this.uid ? this.readAll(this.mine("sessions"), "startedAt") : Promise.resolve([]),
     ]);
-    for (const q of qs) this.questions.set(q.id, q);
+    for (const q of qs) this.questions.set(q.id, { tips: [], ...q });
+    for (const b of bs) this.batches.set(b.id, b);
     for (const p of ps) this.progress.set(p.id, { attempts: p.attempts ?? [] });
     for (const s of ss) this.sessions.set(s.id, s);
-    for (const b of bs) this.batches.set(b.id, b);
     this.emit();
   }
 
@@ -78,9 +91,27 @@ export class Store {
       }
       this.error =
         err?.code === "quota_exceeded"
-          ? "The database is full. Delete old import batches or sessions on the Backup page."
-          : `Could not save (${err?.code ?? "error"}). Your last change may not be stored — check your connection and try again.`;
+          ? "The database is full. Delete old import batches on the Backup page."
+          : err?.code === "invalid_argument"
+            ? "You don't have permission to save this change."
+            : `Could not save (${err?.code ?? "error"}). Check your connection and try again.`;
       this.emit();
+      throw err;
+    }
+  }
+  /** Saves to this person's private space, or keeps it in memory when they have none. */
+  private async writeMine(fn: () => Promise<void>) {
+    if (!this.canSave) return;
+    try {
+      await this.write(fn);
+    } catch (err: any) {
+      if (err?.code === "invalid_argument") {
+        // View-only access: keep going for this visit without saving.
+        this.canSave = false;
+        this.error = null;
+        this.emit();
+        return;
+      }
       throw err;
     }
   }
@@ -89,57 +120,67 @@ export class Store {
     this.emit();
   }
 
-  // ---------- questions
+  // ---------- questions (shared)
   allQuestions(): Question[] {
     return [...this.questions.values()].sort((a, b) => a.seq - b.seq);
   }
-  nextSeq() {
+  maxPos() {
     let max = 0;
-    for (const q of this.questions.values()) max = Math.max(max, q.seq);
-    return max + 1;
+    for (const q of this.questions.values()) max = Math.max(max, q.pos ?? 0, q.seq);
+    return max;
   }
   async putQuestion(q: Question) {
     this.questions.set(q.id, q);
     this.emit();
     await this.write(() => this.db.doc(`questions/${q.id}`).set(strip(q)));
   }
-  async putQuestions(qs: Question[]) {
+  async putQuestions(qs: Question[], onProgress?: (done: number) => void) {
     for (const q of qs) this.questions.set(q.id, q);
     this.emit();
-    for (const q of qs) await this.write(() => this.db.doc(`questions/${q.id}`).set(strip(q)));
+    let done = 0;
+    for (const q of qs) {
+      await this.write(() => this.db.doc(`questions/${q.id}`).set(strip(q)));
+      onProgress?.(++done);
+    }
   }
   async deleteQuestion(id: string) {
     this.questions.delete(id);
     this.progress.delete(id);
     this.emit();
     await this.write(() => this.db.doc(`questions/${id}`).delete());
-    await this.write(() => this.db.doc(`progress/${id}`).delete());
+    await this.writeMine(() => this.db.doc(`${this.mine("progress")}/${id}`).delete());
   }
 
-  // ---------- attempts
+  // ---------- my answers (private)
   attemptsOf(id: string): Attempt[] {
     return this.progress.get(id)?.attempts ?? [];
   }
   async setAttempts(qid: string, attempts: Attempt[]) {
     this.progress.set(qid, { attempts });
     this.emit();
-    await this.write(() => this.db.doc(`progress/${qid}`).set({ qid, attempts }));
+    await this.writeMine(() => this.db.doc(`${this.mine("progress")}/${qid}`).set({ qid, attempts }));
   }
   async addAttempt(qid: string, a: Attempt) {
     await this.setAttempts(qid, [...this.attemptsOf(qid), a]);
   }
+  async resetMyProgress() {
+    const ids = [...this.progress.keys()];
+    const sids = [...this.sessions.keys()];
+    this.progress.clear();
+    this.sessions.clear();
+    this.emit();
+    for (const id of ids) await this.writeMine(() => this.db.doc(`${this.mine("progress")}/${id}`).delete());
+    for (const id of sids) await this.writeMine(() => this.db.doc(`${this.mine("sessions")}/${id}`).delete());
+  }
 
-  // ---------- sessions & batches
+  // ---------- my sessions (private)
   async putSession(s: Session) {
     this.sessions.set(s.id, s);
     this.emit();
-    await this.write(() => this.db.doc(`sessions/${s.id}`).set(strip(s)));
+    await this.writeMine(() => this.db.doc(`${this.mine("sessions")}/${s.id}`).set(strip(s)));
   }
-  async deleteSession(id: string) {
-    this.sessions.delete(id);
-    this.emit();
-    await this.write(() => this.db.doc(`sessions/${id}`).delete());
-  }
+
+  // ---------- batches (shared)
   async putBatch(b: Batch) {
     this.batches.set(b.id, b);
     this.emit();

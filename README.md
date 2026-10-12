@@ -307,11 +307,34 @@ What's verified:
 
 ## Hosted version (claude.ai Artifact)
 
-`artifact/` holds a single-page build of the same app that runs as a private claude.ai Artifact. It needs no
-server, database account or hosting. It reuses the parser, categoriser, scheduler and drill logic from
-`src/lib`, and stores data in the Artifact's own database (readable and writable only by its owner).
+`artifact/` holds a single-page build that runs as a claude.ai Artifact. It needs no server, database account or
+hosting. It reuses the parser and categoriser from `src/lib` and stores data in the Artifact's own database.
+
+**How it works**
+
+- **40 test slots** of 24 questions each (45 minutes if the timer is on; 18/24 to pass). Question *n* in the
+  master document goes to Test `ceil(n / 24)`. Slots without questions show as "coming soon".
+- **Results in the uploaded file are ignored.** Only the bold or highlighted correct answer is used. Your own
+  answers are stored privately per person under `data/users/<you>/profile/…`.
+- **Retry mistakes** lists every question whose most recent answer was wrong. Answering it correctly removes it.
+- **Practice by question style**: True/False and Yes/No, choose two, NOT/false statements, numbers, dates,
+  people, and places. You can also practise by topic or with a mixed set.
+- **Memory tips**: each question has a short, light-hearted memory tip (`tips`). After you submit a test, every
+  wrong answer shows the correct answer, the explanation and its tip. "Another tip" asks Claude for a fresh tip
+  from inside the page.
+
+**Adding the next batch of questions (the easy path)**
+
+1. Open the Artifact → **Import** → upload the whole updated master `.docx` (or `.md`), including the tests
+   you sent before.
+2. The importer recognises the questions it already has and skips them. New questions take their position in the
+   document, so Tests 17, 18 and so on fill in automatically.
+3. Check the preview and select **Import**. Claude then writes memory tips for the new questions.
+
+**Rebuilding from source (developers)**
 
 - Build: `node artifact/build.mjs` → `artifact/dist/life-in-uk-revision.html` (React, ReactDOM and JSZip load from cdnjs).
-- Seed documents for the initial dataset: `npx tsx artifact/seed.ts <out-dir>`.
-- Differences from the Next.js version: `.docx` files are read in the browser; there is no password page,
-  because access is your claude.ai login; backups are JSON/CSV files from the Backup page.
+- Seed documents: `npx tsx artifact/seed.ts <out-dir> [source.md] [per-test] [batch-id] [label]`.
+  It reads the hand-written tips from `data/tips/*.json` (keyed by question position).
+- Source data: `data/initial/LifeInUk-tests-1-16.md` (384 questions, as uploaded, unchanged).
+- The Next.js version under `src/app` does not have the 40-test, retry or tip features yet.

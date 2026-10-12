@@ -1,7 +1,9 @@
 import * as React from "react";
 import { createContext, useContext, useState, useSyncExternalStore } from "react";
-import type { ReviewStatus } from "../../src/lib/srs";
+import type { Status } from "./logic";
+import type { Question } from "./model";
 import type { Store } from "./store";
+import { generateTips, sampleErrorText, type Sample } from "./tips";
 
 export interface Nav {
   view: string;
@@ -12,6 +14,7 @@ export interface AppCtx {
   nav: Nav;
   go: (view: string, param?: string | null) => void;
   downloads: { save: (r: { filename: string; data: string }) => Promise<unknown> } | null;
+  sample: Sample | null;
 }
 export const Ctx = createContext<AppCtx>(null as unknown as AppCtx);
 
@@ -97,14 +100,61 @@ export function Meter({ label, value, detail, onClick }: { label: string; value:
   );
 }
 
-const STATUS: Record<ReviewStatus, [string, string]> = {
-  new: ["New", "pill"],
-  learning: ["Learning", "pill pill-accent"],
-  needs_revision: ["Needs revision", "pill pill-bad"],
-  mastered: ["Mastered", "pill pill-good"],
+const STATUS: Record<Status, [string, string]> = {
+  new: ["Not answered", "pill"],
+  missed: ["To retry", "pill pill-bad"],
+  learned: ["Got it", "pill pill-good"],
 };
-export function StatusPill({ status }: { status: ReviewStatus }) {
+export function StatusPill({ status }: { status: Status }) {
   return <span className={STATUS[status][1]}>{STATUS[status][0]}</span>;
+}
+
+/**
+ * Memory help for one question: the owner's own memory aid, then the tips. When a question has no tip yet,
+ * Claude can write one on request; editors save it for everyone, other people see it for this visit only.
+ */
+export function TipBox({ q, compact }: { q: Question; compact?: boolean }) {
+  const { store, sample } = useApp();
+  const [extra, setExtra] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const tips = [...(q.tips ?? []), ...extra];
+  async function make() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await generateTips(sample, [q]);
+      const got = res[q.id] ?? [];
+      if (!got.length) throw new Error("empty");
+      if (store.isEditor) await store.putQuestion({ ...q, tips: [...(q.tips ?? []), ...got] });
+      else setExtra([...extra, ...got]);
+    } catch (e) {
+      setErr(e instanceof Error && e.message === "empty" ? "No tip came back. Try again." : sampleErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!tips.length && !q.aid && !sample) return null;
+  return (
+    <div className={`tipbox ${compact ? "compact" : ""}`}>
+      <div className="tip-head">
+        <span aria-hidden className="tip-badge">Tip</span>
+        <span className="strong small">How to remember it</span>
+      </div>
+      {q.aid && <p className="small"><strong>Your note:</strong> {q.aid}</p>}
+      {tips.map((t, i) => (
+        <p key={i} className="small">{t}</p>
+      ))}
+      {sample && (
+        <div className="row wrap">
+          <button className="linkbtn tiny" disabled={busy} onClick={make}>
+            {busy ? "Writing a tip…" : tips.length ? "Another tip" : "Create a memory tip"}
+          </button>
+          {err && <span className="tiny err">{err}</span>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Inline two-step confirmation (the viewer cannot show browser confirm dialogs). */

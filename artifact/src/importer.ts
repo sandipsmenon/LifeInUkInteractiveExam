@@ -4,7 +4,7 @@ import { markdownToBlocks } from "../../src/lib/parser/markdown";
 import { parseBlocks } from "../../src/lib/parser/parse";
 import type { Interpretation, MarkerStyle, ParsedQuestion } from "../../src/lib/parser/types";
 import { normalizeText } from "../../src/lib/text";
-import { newId, type Batch, type Question } from "./model";
+import { newId, placement, type Batch, type Question } from "./model";
 import { ref } from "./logic";
 import { contentHash, type Store } from "./store";
 
@@ -12,6 +12,8 @@ export const MAX_BYTES = 5 * 1024 * 1024;
 
 export interface PreviewRecord extends ParsedQuestion {
   hash: string;
+  /** Position across all documents; decides the test (24 per test). */
+  pos: number | null;
   duplicateOf: { id: string; ref: string } | null;
   duplicateInFile: number | null;
   similarExisting: { id: string; ref: string } | null;
@@ -25,6 +27,9 @@ export interface Preview {
   fileHash: string;
   previousImport: Batch | null;
   interpretation: Interpretation;
+  /** true when the document repeats the questions already in the bank at the same positions (a growing master file). */
+  cumulative: boolean;
+  firstNewPos: number;
   records: PreviewRecord[];
   ignored: string[];
 }
@@ -58,20 +63,36 @@ export async function buildPreview(store: Store, file: File, markerStyle?: Marke
   const existing = store.allQuestions();
   const byHash = new Map(existing.map((q) => [q.hash, q]));
   const byPrompt = new Map(existing.map((q) => [normalizeText(q.prompt), q]));
+
+  // A growing master document repeats existing questions at the same positions; a "new questions only"
+  // document does not. In the first case positions come from the document, otherwise they continue the bank.
+  const dups = parsed.questions.map((pq) => byHash.get(contentHash(pq.prompt, pq.options))).filter(Boolean) as Question[];
+  const samePlace = parsed.questions.filter((pq) => byHash.get(contentHash(pq.prompt, pq.options))?.pos === pq.sourcePosition).length;
+  const cumulative = dups.length > 0 && samePlace >= dups.length * 0.9;
+  const firstNewPos = store.maxPos() + 1;
+
   const firstInFile = new Map<string, number>();
+  let nextPos = firstNewPos;
   const records = parsed.questions.map((pq) => {
     const hash = contentHash(pq.prompt, pq.options);
     const dup = byHash.get(hash);
     const inFile = firstInFile.get(hash) ?? null;
     if (inFile === null) firstInFile.set(hash, pq.sourcePosition);
     const similar = !dup ? byPrompt.get(normalizeText(pq.prompt)) : undefined;
+    const isNew = !dup && inFile === null;
+    const pos = dup ? dup.pos : isNew ? (cumulative ? pq.sourcePosition : nextPos++) : null;
+    const place = pos ? placement(pos) : { exam: null, qnum: null };
     return {
       ...pq,
+      sourceResult: null, // results written in the document are deliberately not used
       hash,
+      pos,
+      mockExamNumber: pq.mockExamNumber ?? place.exam,
+      questionNumber: pq.mockExamNumber ? pq.questionNumber : place.qnum,
       duplicateOf: dup ? { id: dup.id, ref: ref(dup) } : null,
       duplicateInFile: inFile,
       similarExisting: similar ? { id: similar.id, ref: ref(similar) } : null,
-      approved: !dup && inFile === null && !pq.issues.some((i) => i.severity === "error"),
+      approved: isNew && !pq.issues.some((i) => i.severity === "error"),
       important: pq.promptHighlighted,
     };
   });
@@ -81,6 +102,8 @@ export async function buildPreview(store: Store, file: File, markerStyle?: Marke
     fileHash,
     previousImport: [...store.batches.values()].find((b) => b.fileHash === fileHash) ?? null,
     interpretation: parsed.interpretation,
+    cumulative,
+    firstNewPos,
     records,
     ignored: parsed.ignoredBlocks,
   };
@@ -92,9 +115,10 @@ export interface Report {
   skipped: number;
   duplicates: number;
   flagged: number;
+  newIds: string[];
 }
 
-export async function commitImport(store: Store, p: Preview, label: string, extra: Record<string, unknown>): Promise<Report> {
+export async function commitImport(store: Store, p: Preview, label: string, extra: Record<string, unknown>, onProgress?: (n: number) => void): Promise<Report> {
   for (const r of p.records) {
     if (!r.approved) continue;
     const keys = new Set(r.options.map((o) => o.key));
@@ -106,7 +130,7 @@ export async function commitImport(store: Store, p: Preview, label: string, extr
   const batchId = newId();
   const now = new Date().toISOString();
   const seen = new Set(store.allQuestions().map((q) => q.hash));
-  let seq = store.nextSeq();
+  let fallbackPos = store.maxPos() + 1;
   const toWrite: Question[] = [];
   let duplicates = 0;
   let flagged = 0;
@@ -118,11 +142,12 @@ export async function commitImport(store: Store, p: Preview, label: string, extr
       continue;
     }
     seen.add(hash);
+    const pos = r.pos ?? fallbackPos++;
     const tf = r.options.length === 2 && r.options.every((o) => /^(true|false)$/i.test(o.text.trim().replace(/[.!]$/, "")));
     const q: Question = {
       id: newId(),
-      seq: seq++,
-      pos: r.sourcePosition,
+      seq: pos,
+      pos,
       prompt: r.prompt.trim(),
       type: tf ? "true_false" : r.correctKeys.length > 1 ? "multi" : "single",
       options: r.options.map(({ key, text }) => ({ key, text: text.trim() })),
@@ -130,7 +155,6 @@ export async function commitImport(store: Store, p: Preview, label: string, extr
       explanation: r.explanation?.trim() || null,
       exam: r.mockExamNumber,
       qnum: r.questionNumber,
-      sourceResult: r.sourceResult,
       original: {
         prompt: r.raw.prompt,
         options: r.raw.options.map((text, i) => ({ key: r.options[i]?.key ?? String(i + 1), text })),
@@ -138,11 +162,11 @@ export async function commitImport(store: Store, p: Preview, label: string, extr
         explanation: r.raw.explanation.join("\n\n") || null,
         exam: r.mockExamNumber,
         qnum: r.questionNumber,
-        rawResult: r.raw.result,
       },
       hash,
       topics: deriveTopics(r),
       cats: categorise(r).map((slug) => ({ slug, source: "auto" as const })),
+      tips: [],
       notes: null,
       aid: null,
       important: r.important,
@@ -166,9 +190,9 @@ export async function commitImport(store: Store, p: Preview, label: string, extr
     label: label || null,
     format: p.format,
     stats,
-    interpretation: { ...p.interpretation, ...extra } as unknown as Record<string, unknown>,
+    interpretation: { ...p.interpretation, cumulative: p.cumulative, ...extra } as unknown as Record<string, unknown>,
     createdAt: now,
   });
-  await store.putQuestions(toWrite);
-  return { batchId, ...stats };
+  await store.putQuestions(toWrite, onProgress);
+  return { batchId, ...stats, newIds: toWrite.map((q) => q.id) };
 }

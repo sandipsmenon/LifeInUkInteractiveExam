@@ -106,8 +106,8 @@ export function TrainView({ kind }: { kind: string }) {
     <div className="runner wide-runner">
       <div className="row between mb">
         <h1 className="h2">{tool?.title ?? "Training"}</h1>
-        <button className="linkbtn muted" onClick={() => go("train")}>
-          All exercises
+        <button className="linkbtn muted" onClick={() => go("practice")}>
+          Back to practice
         </button>
       </div>
       {body}

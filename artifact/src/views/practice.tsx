@@ -1,169 +1,248 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Confidence } from "../../../src/lib/srs";
-import { CAT_NAME, CATEGORIES, EXAM, MODES, newId, type Attempt, type Mode, type Question, type Session } from "../model";
-import { answerOf, catSlugs, derive, deriveAll, ref, selectQuestions, type StartConfig } from "../logic";
+import { CAT_NAME, CATEGORIES, PASS_MARK, PER_TEST, STYLES, TEST_MINUTES, newId, type Attempt, type Mode, type Question, type Session } from "../model";
+import { answerOf, catSlugs, derive, deriveAll, ref, selectQuestions, sessionAnswers, type StartConfig } from "../logic";
+import type { Store } from "../store";
 import { FlagButton } from "./bank";
-import { PageHeader, StatusPill, useApp } from "../ui";
+import { PageHeader, Panel, StatusPill, TipBox, useApp } from "../ui";
+import { startTest } from "./tests";
 
-const ORDER: Mode[] = ["weak", "revision", "quick", "category", "mixed", "mock", "rapid", "exam"];
-const COUNTED: Mode[] = ["quick", "category", "mixed", "weak", "revision", "rapid"];
+async function startPractice(store: Store, cfg: StartConfig, label: string): Promise<string> {
+  const ids = selectQuestions(deriveAll(store), cfg);
+  const s: Session = {
+    id: newId(),
+    mode: cfg.mode,
+    test: null,
+    label,
+    config: cfg as unknown as Record<string, unknown>,
+    qids: ids,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    timeLimit: null,
+  };
+  await store.putSession(s);
+  return s.id;
+}
+
+const COUNTS: [string, string][] = [
+  ["10", "10"],
+  ["24", "24"],
+  ["50", "50"],
+  ["all", "All"],
+];
+
+// ------------------------------------------------------------------ practice home
 
 export function PracticeHome({ initial }: { initial: string | null }) {
   const { store, go } = useApp();
   const all = deriveAll(store);
-  const [initMode, initArg] = (initial ?? "").split(".");
-  const [mode, setMode] = useState<Mode>((ORDER as string[]).includes(initMode) ? (initMode as Mode) : "weak");
-  const cats = CATEGORIES.filter((c) => all.some((d) => catSlugs(d.q).includes(c.slug)));
-  const [category, setCategory] = useState(initMode === "category" && initArg ? initArg : cats[0]?.slug ?? "");
-  const [mixed, setMixed] = useState<string[]>([]);
-  const [count, setCount] = useState(20);
-  const exams = [...new Set(all.map((d) => d.q.exam).filter((e): e is number => e !== null))].sort((a, b) => a - b);
-  const batches = [...store.batches.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const [source, setSource] = useState(exams[0] ? `exam:${exams[0]}` : batches[0] ? `batch:${batches[0].id}` : "");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const now = new Date();
-  const due = all.filter((d) => d.n > 0 && d.state.dueAt && d.state.dueAt <= now).length;
-  const unassigned = all.filter((d) => !d.q.exam).length;
+  const [kind, preset] = (initial ?? "").split(".");
+  const [count, setCount] = useState("24");
+  const [err, setErr] = useState<string | null>(null);
 
-  async function start() {
-    setError(null);
-    const cfg: StartConfig = { mode };
-    if (COUNTED.includes(mode)) cfg.count = count;
-    if (mode === "category") cfg.category = category;
-    if (mode === "mixed" && mixed.length) cfg.categories = mixed;
-    if (mode === "mock") {
-      const [k, v] = source.split(":");
-      if (k === "exam") cfg.exam = Number(v);
-      else cfg.batch = v;
-    }
+  async function start(cfg: StartConfig, label: string) {
+    setErr(null);
     try {
-      const { ids, reasons } = selectQuestions(all, cfg);
-      const s: Session = {
-        id: newId(),
-        mode,
-        config: cfg as unknown as Record<string, unknown>,
-        qids: ids,
-        reasons,
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
-        timeLimit: mode === "exam" ? EXAM.minutes * 60 : null,
-      };
-      setBusy(true);
-      await store.putSession(s);
-      go("session", s.id);
-    } catch (err) {
-      setBusy(false);
-      setError((err as Error).message);
+      go("session", await startPractice(store, { ...cfg, count: count === "all" ? "all" : Number(count) }, label));
+    } catch (e) {
+      setErr((e as Error).message);
     }
   }
 
+  const Row = ({ name, desc, total, missed, onStart, hi }: { name: string; desc?: string; total: number; missed: number; onStart: () => void; hi?: boolean }) => (
+    <li className={`pick ${hi ? "hi" : ""}`}>
+      <div className="minw0 grow">
+        <div className="strong">{name}</div>
+        <div className="tiny muted">
+          {desc ? `${desc} · ` : ""}
+          {total} questions{missed ? ` · ${missed} to retry` : ""}
+        </div>
+      </div>
+      <button className="btn btn-sm" onClick={onStart} disabled={!total}>
+        Practise
+      </button>
+    </li>
+  );
+
   return (
     <>
-      <PageHeader title="Practice" sub="Pick a mode. Every answer updates your progress and revision schedule." />
-      <div className="practice-grid">
-        <fieldset className="modes">
-          <legend className="sr-only">Practice mode</legend>
-          {ORDER.map((m) => (
-            <label key={m} className={`mode ${mode === m ? "on" : ""}`}>
-              <input type="radio" name="mode" checked={mode === m} onChange={() => setMode(m)} />
-              <span>
-                <span className="strong">
-                  {MODES[m].label}
-                  {m === "revision" && <span className="pill ml">{due} due</span>}
-                </span>
-                <span className="small muted block">{MODES[m].description}</span>
-              </span>
+      <PageHeader
+        title="Practice"
+        sub="Pick a question style or a topic from every test. You see the answer straight away, with a memory tip when you get one wrong."
+        actions={
+          <div className="row small">
+            <label htmlFor="pcount" className="muted">
+              Questions
             </label>
-          ))}
-        </fieldset>
-        <div className="panel sticky-side">
-          <h2>{MODES[mode].label}</h2>
-          {mode === "category" && (
-            <div className="field">
-              <label htmlFor="pcat">Category</label>
-              <select id="pcat" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {cats.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.name} ({all.filter((d) => catSlugs(d.q).includes(c.slug)).length})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {mode === "mixed" && (
-            <fieldset className="field">
-              <legend>Categories to mix (none = all)</legend>
-              <div className="chips">
-                {cats.map((c) => {
-                  const on = mixed.includes(c.slug);
-                  return (
-                    <button key={c.slug} aria-pressed={on} className={`chip ${on ? "on" : ""}`} onClick={() => setMixed(on ? mixed.filter((x) => x !== c.slug) : [...mixed, c.slug])}>
-                      {c.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-          )}
-          {mode === "mock" && (
-            <div className="field">
-              <label htmlFor="psrc">Mock exam or import batch</label>
-              <select id="psrc" value={source} onChange={(e) => setSource(e.target.value)}>
-                {exams.map((e) => (
-                  <option key={e} value={`exam:${e}`}>
-                    Mock test {e} ({all.filter((d) => d.q.exam === e).length} questions)
-                  </option>
-                ))}
-                {batches.map((b) => (
-                  <option key={b.id} value={`batch:${b.id}`}>
-                    Batch: {b.label ?? b.filename}
-                  </option>
-                ))}
-              </select>
-              {unassigned > 0 && (
-                <p className="tiny muted">
-                  {unassigned} questions are not assigned to a mock exam yet.{" "}
-                  <button className="linkbtn" onClick={() => go("bank", "exam.none")}>
-                    Assign them
-                  </button>
-                </p>
-              )}
-            </div>
-          )}
-          {COUNTED.includes(mode) && (
-            <div className="field">
-              <label htmlFor="pcount">Number of questions</label>
-              <select id="pcount" value={count} onChange={(e) => setCount(Number(e.target.value))}>
-                {[10, 20, 30, 50, 100].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {mode === "exam" && <p className="small muted">The official format: 24 questions, 45 minutes, 18 correct (75%) to pass. Answers are marked when you submit.</p>}
-          {mode === "weak" && <p className="small muted">Ranked by previous wrong answers, how often you forget, time since your last correct recall, your mock result and confidence.</p>}
-          {error && (
-            <p className="err" role="alert">
-              {error}
-            </p>
-          )}
-          <button className="btn btn-primary wide" onClick={start} disabled={busy || (mode === "mock" && !source)}>
-            {busy ? "Starting…" : "Start"}
-          </button>
-        </div>
+            <select id="pcount" className="auto" value={count} onChange={(e) => setCount(e.target.value)}>
+              {COUNTS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </div>
+        }
+      />
+      {err && (
+        <p className="err mb" role="alert">
+          {err}
+        </p>
+      )}
+      <div className="grid2">
+        <Panel title="By question style">
+          <ul className="picks">
+            {STYLES.map((s) => {
+              const ds = all.filter((d) => s.match(d.q));
+              return (
+                <Row
+                  key={s.key}
+                  name={s.name}
+                  desc={s.description}
+                  total={ds.length}
+                  missed={ds.filter((d) => d.status === "missed").length}
+                  hi={kind === "style" && preset === s.key}
+                  onStart={() => start({ mode: "style", style: s.key }, s.name)}
+                />
+              );
+            })}
+          </ul>
+        </Panel>
+        <Panel title="By topic">
+          <ul className="picks">
+            {CATEGORIES.filter((c) => all.some((d) => catSlugs(d.q).includes(c.slug))).map((c) => {
+              const ds = all.filter((d) => catSlugs(d.q).includes(c.slug));
+              return (
+                <Row
+                  key={c.slug}
+                  name={c.name}
+                  total={ds.length}
+                  missed={ds.filter((d) => d.status === "missed").length}
+                  hi={kind === "topic" && preset === c.slug}
+                  onStart={() => start({ mode: "topic", topic: c.slug }, c.name)}
+                />
+              );
+            })}
+          </ul>
+        </Panel>
+      </div>
+      <div className="grid2 mt-l">
+        <Panel title="Mixed practice">
+          <p className="small muted">A shuffle from every test. Questions you haven’t answered yet, or got wrong, come first.</p>
+          <div>
+            <button className="btn btn-primary" onClick={() => start({ mode: "mixed" }, "Mixed practice")}>
+              Start mixed practice
+            </button>
+          </div>
+        </Panel>
+        <Panel title="Memory drills">
+          <p className="small muted">Games built from the questions: put dates in order, type the number, match people to what they did, flashcards.</p>
+          <div className="row wrap">
+            {(
+              [
+                ["timeline", "Date timeline"],
+                ["numbers", "Number drill"],
+                ["names", "Name recall"],
+                ["compare", "Look-alikes"],
+                ["flashcards", "Flashcards"],
+              ] as const
+            ).map(([k, l]) => (
+              <button key={k} className="btn btn-sm" onClick={() => go("drill", k)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </Panel>
       </div>
     </>
   );
 }
 
-// ------------------------------------------------------------------ session
+// ------------------------------------------------------------------ retry mistakes
+
+export function RetryHome() {
+  const { store, go } = useApp();
+  const all = deriveAll(store);
+  const missed = all.filter((d) => d.status === "missed").sort((a, b) => b.last!.at.localeCompare(a.last!.at));
+  const fixed = all.filter((d) => d.status === "learned" && d.wrong > 0).length;
+  const [err, setErr] = useState<string | null>(null);
+
+  async function retry(count: number | "all", label: string) {
+    setErr(null);
+    try {
+      go("session", await startPractice(store, { mode: "retry", count }, label));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Retry mistakes"
+        sub="Every question you got wrong lands here, from tests and practice. Answer it correctly and it leaves the list."
+        actions={
+          missed.length > 0 && (
+            <>
+              <button className="btn btn-primary" onClick={() => retry("all", "Retry all mistakes")}>
+                Retry all {missed.length}
+              </button>
+              {missed.length > 10 && (
+                <button className="btn" onClick={() => retry(10, "Retry 10 latest mistakes")}>
+                  Latest 10
+                </button>
+              )}
+            </>
+          )
+        }
+      />
+      {err && <p className="err mb">{err}</p>}
+      {missed.length === 0 ? (
+        <Panel>
+          <p className="strong">Nothing to retry.</p>
+          <p className="small muted">
+            {fixed ? `You have fixed all ${fixed} questions you once got wrong. ` : ""}Take a test and any question you miss will appear here.
+          </p>
+          <div>
+            <button className="btn" onClick={() => go("tests")}>
+              Go to tests
+            </button>
+          </div>
+        </Panel>
+      ) : (
+        <>
+          <p className="small muted mb">
+            {missed.length} to retry · {fixed} fixed so far
+          </p>
+          <ul className="stack">
+            {missed.map((d) => (
+              <li key={d.q.id} className="review bad">
+                <div className="row between top">
+                  <span className="strong">{d.q.prompt}</span>
+                  <span className="tiny muted nowrap">
+                    wrong {d.wrong}×
+                  </span>
+                </div>
+                <p className="small">
+                  <span className="muted">Answer: </span>
+                  {answerOf(d.q)}
+                </p>
+                <TipBox q={d.q} compact />
+                <p className="tiny muted">{ref(d.q)}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ sessions
 
 function ordered(q: Question, seed: string) {
-  if (q.type === "true_false") return q.options;
+  if (q.options.length === 2) return q.options; // keep True/False and Yes/No in their natural order
   let h = 2166136261;
   for (const c of seed + q.id) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
   const rand = () => {
@@ -179,19 +258,7 @@ function ordered(q: Question, seed: string) {
   return a;
 }
 
-function sameKeys(a: string[], b: string[]) {
-  return a.length === b.length && [...a].sort().join() === [...b].sort().join();
-}
-
-/** The latest attempt per question within one session. */
-function sessionAnswers(store: ReturnType<typeof useApp>["store"], s: Session) {
-  const out: Record<string, Attempt> = {};
-  for (const qid of s.qids) {
-    const mine = store.attemptsOf(qid).filter((a) => a.sid === s.id);
-    if (mine.length) out[qid] = mine[mine.length - 1];
-  }
-  return out;
-}
+const sameKeys = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
 export function SessionView({ id }: { id: string }) {
   const { store, go } = useApp();
@@ -200,19 +267,19 @@ export function SessionView({ id }: { id: string }) {
     return (
       <div className="panel narrow">
         <h1 className="h2">Session not found</h1>
-        <button className="btn" onClick={() => go("practice")}>
-          Back to practice
+        <button className="btn" onClick={() => go("tests")}>
+          Back to tests
         </button>
       </div>
     );
   }
   const qs = s.qids.map((q) => store.questions.get(q)).filter((q): q is Question => !!q);
   if (s.finishedAt) return <Summary session={s} questions={qs} />;
-  if (s.mode === "exam") return <ExamRunner session={s} questions={qs} />;
+  if (s.mode === "test") return <TestRunner session={s} questions={qs} />;
   return <StudyRunner session={s} questions={qs} />;
 }
 
-async function finish(store: ReturnType<typeof useApp>["store"], s: Session) {
+async function finish(store: Store, s: Session) {
   await store.putSession({ ...s, finishedAt: new Date().toISOString() });
 }
 
@@ -236,11 +303,21 @@ function ProgressBar({ index, total, answered, correct }: { index: number; total
   );
 }
 
-interface Feedback {
-  ok: boolean;
-  revealed: boolean; // answer shown before self-marking
+function Chips({ q, label }: { q: Question; label?: string }) {
+  return (
+    <div className="chips">
+      <span className="chip static">{label ?? ref(q)}</span>
+      {q.cats.slice(0, 2).map((c) => (
+        <span key={c.slug} className="chip static">
+          {CAT_NAME[c.slug]}
+        </span>
+      ))}
+      {q.correctKeys.length > 1 && <span className="chip static warn">Choose {q.correctKeys.length}</span>}
+    </div>
+  );
 }
 
+/** Practice and retry: immediate feedback, a memory tip after a wrong answer. */
 function StudyRunner({ session, questions }: { session: Session; questions: Question[] }) {
   const { store, go } = useApp();
   const answers = sessionAnswers(store, session);
@@ -248,24 +325,10 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
   const [index, setIndex] = useState(firstOpen === -1 ? Math.max(questions.length - 1, 0) : firstOpen);
   const [selected, setSelected] = useState<string[]>([]);
   const [confidence, setConfidence] = useState<Confidence | null>(null);
-  const [askConf, setAskConf] = useState(() => {
-    try {
-      return localStorage.getItem("askConfidence") !== "0";
-    } catch {
-      return true;
-    }
-  });
-  const [fb, setFb] = useState<Feedback | null>(null);
+  const [fb, setFb] = useState<{ ok: boolean; revealed: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
-  const shownAt = useRef(0);
-  const rapid = session.mode === "rapid";
   const q = questions[index];
   const opts = useMemo(() => (q ? ordered(q, session.id) : []), [q, session.id]);
-
-  useEffect(() => {
-    shownAt.current = Date.now();
-  }, [index]);
-
   const answeredCount = Object.keys(answers).length;
   const correctCount = Object.values(answers).filter((a) => a.ok).length;
 
@@ -273,7 +336,7 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
     async (sel: string[], self?: boolean) => {
       if (!q) return;
       const ok = self !== undefined ? self : sameKeys(sel, q.correctKeys);
-      const a: Attempt = { at: new Date().toISOString(), ok, sel, conf: askConf ? confidence : null, mode: session.mode, sid: session.id, self: self !== undefined };
+      const a: Attempt = { at: new Date().toISOString(), ok, sel, conf: confidence, mode: session.mode, sid: session.id, self: self !== undefined };
       setFb({ ok, revealed: false });
       setBusy(true);
       try {
@@ -282,7 +345,7 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
         setBusy(false);
       }
     },
-    [q, askConf, confidence, session, store],
+    [q, confidence, session, store],
   );
 
   async function override(ok: boolean) {
@@ -297,10 +360,7 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
   }
 
   async function next() {
-    if (index + 1 >= questions.length) {
-      await finish(store, session);
-      return;
-    }
+    if (index + 1 >= questions.length) return finish(store, session);
     setIndex(index + 1);
     setSelected([]);
     setConfidence(null);
@@ -310,127 +370,96 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
 
   function toggle(k: string) {
     if (fb) return;
-    if (q.type === "multi") setSelected(selected.includes(k) ? selected.filter((x) => x !== k) : [...selected, k]);
+    if (q.correctKeys.length > 1) setSelected(selected.includes(k) ? selected.filter((x) => x !== k) : [...selected, k]);
     else setSelected([k]);
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
+      if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(t.tagName) && e.key === "Enter") return;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
       const n = Number(e.key);
-      if (!rapid && !fb && n >= 1 && n <= opts.length) toggle(opts[n - 1].key);
+      if (!fb && n >= 1 && n <= opts.length) toggle(opts[n - 1].key);
       if (e.key === "Enter" && !busy) {
         if (fb && !fb.revealed) next();
-        else if (!fb && selected.length && !rapid) record(selected);
+        else if (!fb && selected.length) record(selected);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (!q) return <p>This session has no questions (they may have been deleted).</p>;
-  const reasons = session.reasons?.[q.id];
+  if (!q) return <p>This session has no questions (they may have been removed).</p>;
   const marked = fb && !fb.revealed;
   const d = derive(q, store.attemptsOf(q.id));
 
   return (
     <div className="runner">
       <div className="row between">
-        <h1 className="h2">{MODES[session.mode].label}</h1>
-        <button className="linkbtn muted" onClick={() => go("practice")}>
+        <h1 className="h2">{session.label}</h1>
+        <button className="linkbtn muted" onClick={() => go(session.mode === "retry" ? "retry" : "practice")}>
           Exit
         </button>
       </div>
       <ProgressBar index={index} total={questions.length} answered={answeredCount} correct={correctCount} />
       <article className="qcard" aria-live="polite">
-        <div className="chips">
-          <span className="chip static">{ref(q)}</span>
-          {q.cats.slice(0, 3).map((c) => (
-            <span key={c.slug} className="chip static">
-              {CAT_NAME[c.slug]}
-            </span>
-          ))}
-          {q.type === "multi" && <span className="chip static warn">Choose {q.correctKeys.length}</span>}
-        </div>
-        {reasons && reasons.length > 0 && (
-          <details className="why">
-            <summary>Why this question?</summary>
-            <ul>
-              {reasons.map((r) => (
-                <li key={r}>{r}</li>
-              ))}
-            </ul>
-          </details>
-        )}
+        <Chips q={q} />
         <h2 className="prompt">{q.prompt}</h2>
-
-        {rapid ? (
-          !fb ? (
-            <button className="btn btn-primary wide mt" onClick={() => setFb({ ok: false, revealed: true })}>
-              Show answer
-            </button>
-          ) : (
-            <div className="answer-box">
-              <div className="tiny muted">Answer</div>
-              <div className="big">{answerOf(q)}</div>
-            </div>
-          )
-        ) : (
-          <ul className="options" role={q.type === "multi" ? "group" : "radiogroup"} aria-label="Answer options">
-            {opts.map((o, i) => {
-              const sel = selected.includes(o.key);
-              const right = q.correctKeys.includes(o.key);
-              let cls = sel ? "opt sel" : "opt";
-              if (fb) cls = right ? "opt right" : sel ? "opt wrong" : "opt dim";
-              return (
-                <li key={o.key}>
-                  <button role={q.type === "multi" ? "checkbox" : "radio"} aria-checked={sel} disabled={!!fb} className={cls} onClick={() => toggle(o.key)}>
-                    <span className="okey">{i + 1}</span>
-                    <span className="grow">{o.text}</span>
-                    {fb && right && <span className="tag good">Correct answer</span>}
-                    {fb && sel && !right && <span className="tag bad">Your answer</span>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {!fb && !rapid && askConf && (
-          <fieldset className="conf">
-            <legend className="tiny muted">How sure are you? (optional)</legend>
-            <div className="row">
-              {(
-                [
-                  [1, "Guessing"],
-                  [2, "Unsure"],
-                  [3, "Sure"],
-                ] as const
-              ).map(([v, l]) => (
-                <button key={v} aria-pressed={confidence === v} className={`btn btn-sm grow ${confidence === v ? "on" : ""}`} onClick={() => setConfidence(confidence === v ? null : v)}>
-                  {l}
+        <ul className="options" role={q.correctKeys.length > 1 ? "group" : "radiogroup"} aria-label="Answer options">
+          {opts.map((o, i) => {
+            const sel = selected.includes(o.key);
+            const right = q.correctKeys.includes(o.key);
+            let cls = sel ? "opt sel" : "opt";
+            if (fb) cls = right ? "opt right" : sel ? "opt wrong" : "opt dim";
+            return (
+              <li key={o.key}>
+                <button role={q.correctKeys.length > 1 ? "checkbox" : "radio"} aria-checked={sel} disabled={!!fb} className={cls} onClick={() => toggle(o.key)}>
+                  <span className="okey">{i + 1}</span>
+                  <span className="grow">{o.text}</span>
+                  {fb && right && <span className="tag good">Correct answer</span>}
+                  {fb && sel && !right && <span className="tag bad">Your answer</span>}
                 </button>
-              ))}
-            </div>
-          </fieldset>
-        )}
+              </li>
+            );
+          })}
+        </ul>
 
-        {!fb && !rapid && (
-          <div className="row wrap mt">
-            <button className="btn btn-primary grow" disabled={!selected.length || busy} onClick={() => record(selected)}>
-              Check answer
-            </button>
-            <button className="btn" onClick={() => setFb({ ok: false, revealed: true })}>
-              I don’t know, reveal
-            </button>
-          </div>
+        {!fb && (
+          <>
+            <fieldset className="conf">
+              <legend className="tiny muted">How sure are you? (optional)</legend>
+              <div className="row">
+                {(
+                  [
+                    [1, "Guessing"],
+                    [2, "Unsure"],
+                    [3, "Sure"],
+                  ] as const
+                ).map(([v, l]) => (
+                  <button key={v} aria-pressed={confidence === v} className={`btn btn-sm grow ${confidence === v ? "on" : ""}`} onClick={() => setConfidence(confidence === v ? null : v)}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <div className="row wrap">
+              <button className="btn btn-primary grow" disabled={!selected.length || busy} onClick={() => record(selected)}>
+                Check answer
+              </button>
+              <button className="btn" onClick={() => setFb({ ok: false, revealed: true })}>
+                I don’t know, show me
+              </button>
+            </div>
+          </>
         )}
 
         {fb?.revealed && (
-          <div className="mt">
-            {!rapid && <p className="small">The answer is: <strong>{answerOf(q)}</strong></p>}
-            <p className="small muted">Did you know it?</p>
+          <div className="stack">
+            <p className="small">
+              The answer is: <strong>{answerOf(q)}</strong>
+            </p>
+            <TipBox q={q} />
             <div className="row">
               <button className="btn grow good-outline" disabled={busy} onClick={() => record([], true)}>
                 I knew it
@@ -445,24 +474,14 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
         {marked && (
           <div className="feedback">
             <div className={`verdict ${fb.ok ? "good" : "bad"}`} role="status">
-              {fb.ok ? "Correct" : `Incorrect. The answer is: ${answerOf(q)}`}
+              {fb.ok ? "Correct" : `Not quite. The answer is: ${answerOf(q)}`}
             </div>
             {q.explanation && <p className="explain">{q.explanation}</p>}
-            {q.aid && (
-              <p className="aid">
-                <strong>Memory aid:</strong> {q.aid}
-              </p>
-            )}
-            <p className="tiny muted">
-              <StatusPill status={d.state.status} />{" "}
-              {d.state.intervalDays >= 1
-                ? `Next review in ${d.state.intervalDays} day${d.state.intervalDays === 1 ? "" : "s"}`
-                : d.state.intervalDays > 0
-                  ? `Next review in about ${Math.round(d.state.intervalDays * 24)} hours`
-                  : "Back for review in 10 minutes"}{" "}
-              ·{" "}
+            {!fb.ok && <TipBox q={q} />}
+            <p className="tiny muted row wrap">
+              <StatusPill status={d.status} />
               <button className="linkbtn" onClick={() => override(!fb.ok)}>
-                {fb.ok ? "Actually I got this wrong" : "Mark as correct instead"}
+                {fb.ok ? "Actually I got this wrong" : "I misclicked, mark it correct"}
               </button>
             </p>
           </div>
@@ -472,31 +491,13 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
           <div className="row">
             <FlagButton q={q} />
             <button className="linkbtn tiny muted" onClick={() => go("q", q.id)}>
-              Edit / notes
+              Details
             </button>
           </div>
-          {marked ? (
+          {marked && (
             <button className="btn btn-primary" onClick={next} autoFocus>
               {index + 1 >= questions.length ? "Finish" : "Next"}
             </button>
-          ) : (
-            !rapid && (
-              <label className="tiny muted row">
-                <input
-                  type="checkbox"
-                  checked={askConf}
-                  onChange={(e) => {
-                    setAskConf(e.target.checked);
-                    try {
-                      localStorage.setItem("askConfidence", e.target.checked ? "1" : "0");
-                    } catch {
-                      /* preference only */
-                    }
-                  }}
-                />
-                Ask confidence
-              </label>
-            )
           )}
         </div>
       </article>
@@ -505,9 +506,10 @@ function StudyRunner({ session, questions }: { session: Session; questions: Ques
   );
 }
 
-function ExamRunner({ session, questions }: { session: Session; questions: Question[] }) {
+/** One of the 40 tests: like the real exam, nothing is marked until you submit. */
+function TestRunner({ session, questions }: { session: Session; questions: Question[] }) {
   const { store, go } = useApp();
-  const key = `exam:${session.id}`;
+  const key = `test:${session.id}`;
   const [answers, setAnswers] = useState<Record<string, string[]>>(() => {
     try {
       return JSON.parse(sessionStorage.getItem(key) ?? "{}");
@@ -520,8 +522,9 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
   const [busy, setBusy] = useState(false);
   const [askSubmit, setAskSubmit] = useState(false);
   const done = useRef(false);
-  const deadline = new Date(session.startedAt).getTime() + (session.timeLimit ?? EXAM.minutes * 60) * 1000;
-  const remaining = Math.max(0, deadline - now);
+  const timed = !!session.timeLimit;
+  const deadline = new Date(session.startedAt).getTime() + (session.timeLimit ?? 0) * 1000;
+  const remaining = timed ? Math.max(0, deadline - now) : Infinity;
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -544,7 +547,7 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
     const at = new Date().toISOString();
     for (const q of questions) {
       const sel = answers[q.id] ?? [];
-      await store.addAttempt(q.id, { at, ok: sameKeys(sel, q.correctKeys), sel, conf: null, mode: "exam", sid: session.id, self: false });
+      await store.addAttempt(q.id, { at, ok: sameKeys(sel, q.correctKeys), sel, conf: null, mode: "test", sid: session.id, self: false });
     }
     await finish(store, session);
     try {
@@ -555,27 +558,29 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
   }, [answers, questions, session, store, key]);
 
   useEffect(() => {
-    if (remaining === 0) submit();
-  }, [remaining, submit]);
+    if (timed && remaining === 0) submit();
+  }, [timed, remaining, submit]);
 
   const q = questions[index];
   const opts = useMemo(() => (q ? ordered(q, session.id) : []), [q, session.id]);
   if (!q) return null;
   const sel = answers[q.id] ?? [];
   const answered = questions.filter((x) => (answers[x.id] ?? []).length).length;
-  const mm = Math.floor(remaining / 60000);
-  const ss = Math.floor((remaining % 60000) / 1000);
+  const elapsed = Math.max(0, now - new Date(session.startedAt).getTime());
+  const shown = timed ? remaining : elapsed;
+  const mm = Math.floor(shown / 60000);
+  const ss = Math.floor((shown % 60000) / 1000);
 
   function toggle(k: string) {
-    const next = q.type === "multi" ? (sel.includes(k) ? sel.filter((x) => x !== k) : [...sel, k]) : [k];
+    const next = q.correctKeys.length > 1 ? (sel.includes(k) ? sel.filter((x) => x !== k) : [...sel, k]) : [k];
     save({ ...answers, [q.id]: next });
   }
 
   return (
     <div className="runner">
       <div className="row between">
-        <h1 className="h2">Exam simulation</h1>
-        <div className={`timer ${remaining < 300000 ? "low" : ""}`} role="timer" aria-label="Time remaining">
+        <h1 className="h2">{session.label}</h1>
+        <div className={`timer ${timed && remaining < 300000 ? "low" : ""}`} role="timer" aria-label={timed ? "Time remaining" : "Time taken"}>
           {mm}:{String(ss).padStart(2, "0")}
         </div>
       </div>
@@ -583,19 +588,20 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
       <article className="qcard">
         <div className="chips">
           <span className="chip static">Question {index + 1}</span>
-          {q.type === "multi" && <span className="chip static warn">Choose {q.correctKeys.length}</span>}
+          {q.correctKeys.length > 1 && <span className="chip static warn">Choose {q.correctKeys.length}</span>}
         </div>
         <h2 className="prompt">{q.prompt}</h2>
         <ul className="options">
-          {opts.map((o) => (
+          {opts.map((o, i) => (
             <li key={o.key}>
-              <button role={q.type === "multi" ? "checkbox" : "radio"} aria-checked={sel.includes(o.key)} className={sel.includes(o.key) ? "opt sel" : "opt"} onClick={() => toggle(o.key)}>
+              <button role={q.correctKeys.length > 1 ? "checkbox" : "radio"} aria-checked={sel.includes(o.key)} className={sel.includes(o.key) ? "opt sel" : "opt"} onClick={() => toggle(o.key)}>
+                <span className="okey">{i + 1}</span>
                 <span className="grow">{o.text}</span>
               </button>
             </li>
           ))}
         </ul>
-        <div className="row between mt">
+        <div className="row between">
           <button className="btn" disabled={index === 0} onClick={() => setIndex(index - 1)}>
             Previous
           </button>
@@ -605,7 +611,7 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
             </button>
           ) : (
             <button className="btn btn-primary" disabled={busy} onClick={() => setAskSubmit(true)}>
-              Submit exam
+              Submit test
             </button>
           )}
         </div>
@@ -623,11 +629,12 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
           </button>
         ))}
       </nav>
-      <div className="center mt">
+      <div className="center">
         {askSubmit ? (
           <div className="confirm-box" role="group">
             <p className="small">
-              Submit now? {questions.length - answered} question{questions.length - answered === 1 ? "" : "s"} unanswered.
+              Submit now?{" "}
+              {questions.length - answered ? `${questions.length - answered} question${questions.length - answered === 1 ? " is" : "s are"} unanswered and will count as wrong.` : "All questions answered."}
             </p>
             <div className="row center">
               <button className="btn btn-primary" disabled={busy} onClick={submit}>
@@ -640,14 +647,14 @@ function ExamRunner({ session, questions }: { session: Session; questions: Quest
           </div>
         ) : (
           <button className="btn" onClick={() => setAskSubmit(true)}>
-            Submit exam ({answered}/{questions.length} answered)
+            Submit test ({answered}/{questions.length} answered)
           </button>
         )}
         <p className="tiny muted mt">
-          <button className="linkbtn" onClick={() => go("practice")}>
-            Leave
+          <button className="linkbtn" onClick={() => go("tests")}>
+            Leave for now
           </button>{" "}
-          (your answers so far are kept in this browser tab until you submit)
+          (your answers are kept in this browser tab until you submit)
         </p>
       </div>
     </div>
@@ -658,68 +665,119 @@ function Summary({ session, questions }: { session: Session; questions: Question
   const { store, go } = useApp();
   const answers = sessionAnswers(store, session);
   const rows = questions.filter((q) => answers[q.id]);
-  const correct = rows.filter((q) => answers[q.id].ok).length;
-  const total = session.mode === "exam" ? questions.length : rows.length;
-  const passMark = Math.ceil(total * (EXAM.passMark / EXAM.questions));
-  const missed = rows.filter((q) => !answers[q.id].ok).length;
+  const wrong = rows.filter((q) => !answers[q.id].ok);
+  const correct = rows.length - wrong.length;
+  const isTest = session.mode === "test";
+  const total = isTest ? questions.length : rows.length;
+  const passMark = Math.ceil((total * PASS_MARK) / PER_TEST);
+  const [showRight, setShowRight] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  async function practiseWeak() {
-    const { ids, reasons } = selectQuestions(deriveAll(store), { mode: "weak", count: Math.max(missed, 10) });
-    const s: Session = { id: newId(), mode: "weak", config: { mode: "weak" }, qids: ids, reasons, startedAt: new Date().toISOString(), finishedAt: null, timeLimit: null };
-    await store.putSession(s);
-    go("session", s.id);
+  async function retryThese() {
+    setErr(null);
+    try {
+      go("session", await startPractice(store, { mode: "retry", onlyIds: wrong.map((q) => q.id) }, `Retry: ${session.label}`));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
   }
+  async function retake() {
+    let timed = true;
+    try {
+      timed = localStorage.getItem("timedTests") !== "0";
+    } catch {
+      /* default on */
+    }
+    go("session", await startTest(store, session.test!, timed));
+  }
+  const nextTest = isTest ? session.test! + 1 : null;
+  const nextAvailable = nextTest !== null && [...store.questions.values()].some((q) => q.exam === nextTest);
 
   return (
     <div className="runner wide-runner">
-      <div className="panel center">
-        <p className="small muted">{MODES[session.mode].label} complete</p>
+      <div className="panel center result-head">
+        <p className="eyebrow">{session.label} · results</p>
         <p className="score num">
           {correct}/{total}
         </p>
-        <p className="muted">{total ? Math.round((correct / total) * 100) : 0}% correct</p>
-        {session.mode === "exam" && (
+        {isTest ? (
           <p className={`verdict inline ${correct >= passMark ? "good" : "bad"}`}>
-            {correct >= passMark ? "Pass" : "Not yet a pass"}: pass mark {passMark}/{total}
+            {correct >= passMark ? "Pass" : "Not a pass yet"}: you need {passMark} of {total}
           </p>
+        ) : (
+          <p className="muted">{total ? Math.round((correct / total) * 100) : 0}% correct</p>
         )}
         <div className="row wrap center mt">
-          {missed > 0 && (
-            <button className="btn btn-primary" onClick={practiseWeak}>
-              Practise weak areas now
+          {wrong.length > 0 && (
+            <button className="btn btn-primary" onClick={retryThese}>
+              Retry the {wrong.length} I got wrong
             </button>
           )}
-          <button className="btn" onClick={() => go("practice")}>
-            New session
-          </button>
-          <button className="btn" onClick={() => go("dashboard")}>
-            Dashboard
+          {isTest && (
+            <button className="btn" onClick={retake}>
+              Retake Test {session.test}
+            </button>
+          )}
+          {nextAvailable && (
+            <button className="btn" onClick={() => go("tests")}>
+              Next: Test {nextTest}
+            </button>
+          )}
+          <button className="btn" onClick={() => go("home")}>
+            Home
           </button>
         </div>
+        {err && <p className="err">{err}</p>}
       </div>
-      <h2 className="h3 mt-l">Review answers</h2>
-      <ul className="stack">
-        {rows.map((q) => {
-          const a = answers[q.id];
-          return (
-            <li key={q.id} className={`review ${a.ok ? "good" : "bad"}`}>
-              <div className="row between top">
-                <button className="linkbtn strong left" onClick={() => go("q", q.id)}>
-                  {q.prompt}
-                </button>
-                <span className={`tag ${a.ok ? "good" : "bad"}`}>{a.ok ? "Correct" : "Incorrect"}</span>
-              </div>
-              <p className="small">
-                <span className="muted">Answer: </span>
-                {answerOf(q)}
-              </p>
-              {!a.ok && a.sel.length > 0 && <p className="small bad-text">You chose: {q.options.filter((o) => a.sel.includes(o.key)).map((o) => o.text).join("; ")}</p>}
-              {!a.ok && q.explanation && <p className="small muted">{q.explanation}</p>}
-              <p className="tiny muted">{ref(q)}</p>
-            </li>
-          );
-        })}
-      </ul>
+
+      {wrong.length > 0 ? (
+        <>
+          <h2 className="h3 mt-l">What you missed, and how to remember it</h2>
+          <ul className="stack">
+            {wrong.map((q) => {
+              const a = answers[q.id];
+              return (
+                <li key={q.id} className="review bad">
+                  <p className="strong">{q.prompt}</p>
+                  {a.sel.length > 0 ? (
+                    <p className="small bad-text">You chose: {q.options.filter((o) => a.sel.includes(o.key)).map((o) => o.text).join("; ")}</p>
+                  ) : (
+                    <p className="small bad-text">Not answered</p>
+                  )}
+                  <p className="small good-text strong">Answer: {answerOf(q)}</p>
+                  {q.explanation && <p className="small muted">{q.explanation}</p>}
+                  <TipBox q={q} />
+                  <p className="tiny muted">{ref(q)}</p>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : (
+        <p className="center strong mt-l">A clean sweep: nothing to fix.</p>
+      )}
+      {rows.length > wrong.length && (
+        <div className="mt-l">
+          <button className="linkbtn small" aria-expanded={showRight} onClick={() => setShowRight(!showRight)}>
+            {showRight ? "Hide" : "Show"} the {rows.length - wrong.length} you got right
+          </button>
+          {showRight && (
+            <ul className="stack mt">
+              {rows
+                .filter((q) => answers[q.id].ok)
+                .map((q) => (
+                  <li key={q.id} className="review good">
+                    <p className="small strong">{q.prompt}</p>
+                    <p className="small">{answerOf(q)}</p>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {isTest && <p className="tiny muted mt-l center">Real test format: {PER_TEST} questions, {TEST_MINUTES} minutes, {PASS_MARK} to pass.</p>}
     </div>
   );
 }
+
+export type { Mode };

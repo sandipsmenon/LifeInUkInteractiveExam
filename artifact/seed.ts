@@ -3,7 +3,7 @@
 // Question ids are init001…initNNN by document position, so re-running on a longer version of the same
 // document produces the same ids for questions already loaded (their practice history stays attached).
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { categorise, deriveTopics } from "../src/lib/categorize";
 import { markdownToBlocks } from "../src/lib/parser/markdown";
@@ -21,6 +21,9 @@ const exam = (pos: number) => (perExam ? Math.floor((pos - 1) / perExam) + 1 : n
 const qnum = (pos: number) => (perExam ? ((pos - 1) % perExam) + 1 : null);
 mkdirSync(path.join(out, "questions"), { recursive: true });
 let flagged = 0;
+// Memory tips written for each document position: data/tips/*.json maps "position" -> ["tip", ...].
+const tips: Record<string, string[]> = {};
+for (const f of readdirSync("data/tips").filter((f) => f.endsWith(".json"))) Object.assign(tips, JSON.parse(readFileSync(path.join("data/tips", f), "utf8")));
 for (const r of parsed.questions) {
   const id = `init${String(r.sourcePosition).padStart(3, "0")}`;
   const tf = r.options.length === 2 && r.options.every((o) => /^(true|false)$/i.test(o.text.trim()));
@@ -35,7 +38,8 @@ for (const r of parsed.questions) {
     explanation: r.explanation,
     exam: exam(r.sourcePosition),
     qnum: qnum(r.sourcePosition),
-    sourceResult: r.sourceResult,
+    sourceResult: null, // the Correct/Incorrect lines in the document are deliberately not used
+    tips: tips[String(r.sourcePosition)] ?? [],
     original: {
       prompt: r.raw.prompt,
       options: r.raw.options.map((text, i) => ({ key: r.options[i].key, text })),
@@ -43,7 +47,6 @@ for (const r of parsed.questions) {
       explanation: r.raw.explanation.join("\n\n") || null,
       exam: exam(r.sourcePosition),
       qnum: qnum(r.sourcePosition),
-      rawResult: r.raw.result,
     },
     hash: contentHash(r.prompt, r.options),
     topics: deriveTopics(r),
